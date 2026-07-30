@@ -1,0 +1,1149 @@
+*------------------------------------------------------------------------------
+* Module Pool     ZSD_EMAIL
+*------------------------------------------------------------------------------
+* Title:          SD Order Confirmation and Invoice Report
+* RICEF#:         TBD
+* Transaction:    ZSD_EMAIL
+*------------------------------------------------------------------------------
+* Copyright:      itelligence, Inc.
+* Client:         Stulz ATS
+*------------------------------------------------------------------------------
+* Developer:      TBD - Loaded by Jimmy Dickinson (JDICKINSON)
+* Creation Date:  10/26/09
+* Description:
+* This program reads SD orders and e-mails them to receipient based upon user
+* parameters defined on the input screen. Standard SAP e-mail function used
+* to output document.
+*
+*------------------------------------------------------------------------------
+* Modification History
+*------------------------------------------------------------------------------
+* Modified by:    Jimmy Dickinson (JDICKINSON)
+* Date:           10/26/09
+* Transport:      20091020 JDN Z_Email SD Document Program
+* Description:
+* Initial Development
+* Modified by:    Jimmy Dickinson (JDICKINSON)
+* Date:           04/14/09
+* Transport:      DEVK902278       JDICKINSON   04142010 JDN - ZSD_EMAIL text input updates
+* Description:    Update text elements on the front screen
+
+REPORT  zsd_email.
+
+TABLES: vbak, vbrk, tsp01, sscrfields, likp, kna1.
+DATA: BEGIN OF bdcdata OCCURS 50.
+        INCLUDE STRUCTURE bdcdata.
+DATA: END OF bdcdata.
+
+DATA: BEGIN OF mesgtab OCCURS 50.
+        INCLUDE STRUCTURE bdcmsgcoll.
+DATA: END OF mesgtab.
+
+DATA: doc_type(3).
+CLEAR doc_type.
+
+DATA: title         LIKE nast-tdcovtitle,
+      spool_req(10),
+      part1(5), part2(5),
+      xpath         TYPE string,
+      xuser_action  TYPE i.
+
+DATA: BEGIN OF t_pdf OCCURS 0.
+        INCLUDE STRUCTURE tline.
+DATA: END OF t_pdf.
+
+DATA: w_mode(1) TYPE c.
+DATA: name1        LIKE kna1-name1,
+      pdf_name(50) TYPE c.
+
+SELECTION-SCREEN: BEGIN OF BLOCK b1 WITH FRAME TITLE t1.
+  PARAMETERS: order    RADIOBUTTON GROUP doc USER-COMMAND radio DEFAULT 'X',
+              packslip RADIOBUTTON GROUP doc,
+              invoice  RADIOBUTTON GROUP doc.
+SELECTION-SCREEN: END OF BLOCK b1.
+
+SELECTION-SCREEN: BEGIN OF BLOCK b2 WITH FRAME TITLE t2.
+  PARAMETERS: vbeln        LIKE vbak-vbeln MODIF ID sc1 MATCHCODE OBJECT vmva,
+              pbeln        LIKE vbak-vbeln MODIF ID sc3 MATCHCODE OBJECT vmvl,
+              ibeln        LIKE vbrk-vbeln MODIF ID sc2 MATCHCODE OBJECT vmcf,
+              address1     LIKE tsp02-pjposname,
+              address2     LIKE tsp02-pjposname,
+              address3     LIKE tsp02-pjposname,
+              address4     LIKE tsp02-pjposname,
+              subject(250).
+SELECTION-SCREEN: END OF BLOCK b2.
+
+SELECTION-SCREEN: BEGIN OF BLOCK b3 WITH FRAME TITLE t3.
+  PARAMETERS: xsave    AS CHECKBOX,
+              saveonly AS CHECKBOX.
+SELECTION-SCREEN: END OF BLOCK b3.
+
+DATA: w_tim LIKE sy-uzeit.
+
+
+
+AT SELECTION-SCREEN.
+
+  IF order = 'X' AND vbeln = ''.
+    MESSAGE e203(zsd).
+  ELSEIF invoice = 'X' AND ibeln = '' .
+    MESSAGE e204(zsd).
+  ELSEIF packslip = 'X' AND pbeln = ''.
+    MESSAGE e202(zsd).
+  ENDIF.
+
+  IF order = 'X'.
+    SELECT SINGLE vbeln INTO vbak-vbeln FROM vbak
+        WHERE vbeln = vbeln.
+    IF sy-subrc <> 0.
+      MESSAGE e205(zsd) WITH vbeln.
+    ENDIF.
+    CLEAR: pbeln, ibeln.
+  ELSEIF invoice = 'X'.
+    SELECT SINGLE vbeln kunag INTO (vbrk-vbeln, vbrk-kunag) FROM vbrk
+        WHERE vbeln = ibeln.
+    IF sy-subrc <> 0.
+      MESSAGE e206(zsd) WITH ibeln.
+    ENDIF.
+    CLEAR: vbeln, pbeln.
+  ELSEIF packslip = 'X'.
+    SELECT SINGLE vbeln kunnr INTO (likp-vbeln, likp-kunag) FROM likp
+      WHERE vbeln = pbeln.
+    IF sy-subrc <> 0.
+      MESSAGE e207(zsd) WITH pbeln.
+    ENDIF.
+    CLEAR: vbeln, ibeln.
+  ENDIF.
+
+  IF address1 = '' AND saveonly = ''.
+    MESSAGE e209(zsd).
+  ENDIF.
+
+AT SELECTION-SCREEN OUTPUT.
+
+
+INITIALIZATION.
+
+  MOVE 'Details:' TO t2.
+  MOVE 'Document type:' TO t1.
+  MOVE 'Archiving' TO t3.
+
+START-OF-SELECTION.
+  w_tim = sy-uzeit.
+  title = subject.
+  IF xsave = 'X' OR saveonly = 'X'.
+    PERFORM get_path.
+  ENDIF.
+  IF order = 'X'.
+    PERFORM email_sales_order.
+  ELSEIF invoice = 'X'.
+    PERFORM email_invoice.
+  ELSEIF packslip = 'X'.
+    PERFORM email_packing_slip.
+  ENDIF.
+
+*&---------------------------------------------------------------------*
+*&      Form  EMAIL_SALES_ORDER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM email_sales_order .
+
+* SEND OUTPUT TO SPOOL
+  IF title = ''.
+    title = 'SALES ORDER '.
+    title+12(10) = vbeln.
+    title+33(8) = w_tim.
+  ELSE.
+    CONCATENATE title w_tim INTO title.
+  ENDIF.
+  CLEAR vbak-auart.
+  SELECT SINGLE auart kunnr FROM vbak
+          INTO  (vbak-auart, vbak-kunnr)
+          WHERE vbeln = vbeln.
+  CLEAR name1.                      " 11989 - Find customer name
+  SELECT SINGLE name1 FROM kna1
+          INTO name1
+          WHERE kunnr = vbak-kunnr.
+  REFRESH bdcdata.
+  PERFORM bdc_dynpro USING 'SAPMV45A'         '0102'.
+  PERFORM bdc_field  USING 'VBAK-VBELN'        vbeln.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'DRCK'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_CURSOR'       'NAST-KSCHL(01)'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'OPTS'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0100'.
+  PERFORM bdc_field  USING 'NAST-DIMME'      ' '.
+  PERFORM bdc_field  USING 'NAST-DELET'      'X'.
+  PERFORM bdc_field  USING 'NAST-TDCOVTITLE'  title.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'STAR'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'PRNT'.
+  IF vbak-auart = 'AG'.
+    PERFORM call_transaction_va23.
+  ELSE.
+    PERFORM call_transaction_va03.
+  ENDIF.
+
+  IF xsave = '' AND saveonly = ''.
+    PERFORM email.
+  ELSEIF xsave = 'X' AND saveonly = '' .
+    PERFORM spool_convert_to_pdf.
+    PERFORM email.
+  ELSEIF saveonly = 'X'.
+    PERFORM spool_convert_to_pdf.
+  ENDIF.
+
+
+ENDFORM.                    " EMAIL_SALES_ORDER
+*&---------------------------------------------------------------------*
+*&      Form  EMAIL_INVOICE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM email_invoice .
+
+* SEND OUTPUT TO SPOOL
+  IF title = ''.
+    title = 'INVOICE '.
+    title+8(10) = ibeln.
+    title+20(8) = w_tim.
+  ELSE.
+    CONCATENATE title w_tim INTO title.
+  ENDIF.
+
+  CLEAR name1.                      " 11989 - Find customer name
+  SELECT SINGLE name1 FROM kna1
+          INTO name1
+          WHERE kunnr = vbrk-kunag.
+
+  REFRESH bdcdata.
+  PERFORM bdc_dynpro USING 'SAPMV60A'         '0101'.
+  PERFORM bdc_field  USING 'VBRK-VBELN'        ibeln.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'DRCK'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_CURSOR'       'NAST-KSCHL(01)'.
+  PERFORM bdc_field  USING 'ROW_MARK(01)'     'X'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'OPTS'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0100'.
+  PERFORM bdc_field  USING 'NAST-DIMME'      ' '.
+  PERFORM bdc_field  USING 'NAST-DELET'      'X'.
+  PERFORM bdc_field  USING 'NAST-TDCOVTITLE'  title.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'STAR'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'PRNT'.
+  PERFORM call_transaction_vf03.
+
+  REFRESH mesgtab.
+
+  IF xsave = '' AND saveonly = ''.
+*    PERFORM email_inv.  "-US5092 9004338557 - Invoice SmartForm & Email Changes
+    PERFORM email_inv_s4h. "+US5092 9004338557 - Invoice SmartForm & Email Changes
+  ELSEIF xsave = 'X' AND saveonly = '' .
+    PERFORM spool_convert_to_pdf.
+*    PERFORM email_inv.  "-US5092 9004338557 - Invoice SmartForm & Email Changes
+    PERFORM email_inv_s4h. "+US5092 9004338557 - Invoice SmartForm & Email Changes
+  ELSEIF saveonly = 'X'.
+    PERFORM spool_convert_to_pdf.
+  ENDIF.
+
+ENDFORM.                    " EMAIL_INVOICE
+
+*&---------------------------------------------------------------------*
+*&      Form  EMAIL_PACKING_SLIP
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM email_packing_slip .
+
+* SEND OUTPUT TO SPOOL
+  IF title = ''.
+    title = 'PACKING SLIP '.
+    title+13(10) = pbeln.
+    title+25(8) = w_tim.
+  ELSE.
+    CONCATENATE title w_tim INTO title.
+  ENDIF.
+
+  CLEAR name1.                      " 11989 - Find customer name
+  SELECT SINGLE name1 FROM kna1
+          INTO name1
+          WHERE kunnr = likp-kunag.
+
+  REFRESH bdcdata.
+  PERFORM bdc_dynpro USING 'SAPMV50A'         '4004'.
+  PERFORM bdc_field  USING 'LIKP-VBELN'        pbeln.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'PRNT_T'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_CURSOR'       'NAST-KSCHL(02)'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'OPTS'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0100'.
+  PERFORM bdc_field  USING 'NAST-DIMME'      ' '.
+  PERFORM bdc_field  USING 'NAST-DELET'      'X'.
+* PERFORM BDC_FIELD  USING 'NAST-LDEST'      'YPCC Win Default'.
+  PERFORM bdc_field  USING 'NAST-LDEST'        'LP01'.
+  PERFORM bdc_field  USING 'NAST-TDCOVTITLE'  title.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'STAR'.
+  PERFORM bdc_dynpro USING 'SAPLVMSG'         '0200'.
+  PERFORM bdc_field  USING 'BDC_OKCODE'       'PRNT'.
+  PERFORM call_transaction_vl03n.
+
+  REFRESH mesgtab.
+  IF xsave = '' AND saveonly = ''.
+    PERFORM email.
+  ELSEIF xsave = 'X' AND saveonly = '' .
+    PERFORM spool_convert_to_pdf.
+    PERFORM email.
+  ELSEIF saveonly = 'X'.
+    PERFORM spool_convert_to_pdf.
+  ENDIF.
+
+ENDFORM.                    "EMAIL_PACKING_SLIP
+
+
+************************************************************************
+* Form bdc_dynpro                                                      *
+* Description: Populate transaction screen                             *
+************************************************************************
+FORM bdc_dynpro USING program dynpro.
+  CLEAR bdcdata.
+  bdcdata-program = program.
+  bdcdata-dynpro  = dynpro.
+  bdcdata-dynbegin = 'X'.
+  APPEND bdcdata.
+ENDFORM.                    "bdc_dynpro
+
+************************************************************************
+* Form bdc_field                                                       *
+* Description: Populate screen fields                                  *
+************************************************************************
+FORM bdc_field USING fnam fval.
+  CLEAR bdcdata.
+  bdcdata-fnam = fnam.
+  bdcdata-fval = fval.
+  APPEND bdcdata.
+ENDFORM.                    "bdc_field
+
+*&--------------------------------------------------------------------*
+*&      Form  CALL_TRANSACTION_VA03
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+FORM call_transaction_va03.
+  REFRESH mesgtab.
+  CALL TRANSACTION 'VA03' USING bdcdata MODE 'N' UPDATE 'S'
+       MESSAGES INTO mesgtab.
+ENDFORM.                    "CALL_TRANSACTION_VA03
+
+*&--------------------------------------------------------------------*
+*&      Form  CALL_TRANSACTION_VA23
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+FORM call_transaction_va23.
+  REFRESH mesgtab.
+  w_mode = 'N'.
+  CALL TRANSACTION 'VA23' USING bdcdata MODE w_mode UPDATE 'S'
+       MESSAGES INTO mesgtab.
+ENDFORM.                    "CALL_TRANSACTION_VA23
+
+
+
+*&--------------------------------------------------------------------*
+*&      Form  CALL_TRANSACTION_VF03
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+FORM call_transaction_vf03.
+  REFRESH mesgtab.
+  w_mode = 'N'.
+  CALL TRANSACTION 'VF03' USING bdcdata MODE w_mode UPDATE 'S'
+       MESSAGES INTO mesgtab.
+ENDFORM.                    "CALL_TRANSACTION_VF03
+
+*&--------------------------------------------------------------------*
+*&      Form  CALL_TRANSACTION_VL03N
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+FORM call_transaction_vl03n.
+  REFRESH mesgtab.
+  w_mode = 'N'.
+  CALL TRANSACTION 'VL03N' USING bdcdata MODE w_mode UPDATE 'S'
+       MESSAGES INTO mesgtab.
+ENDFORM.                    "CALL_TRANSACTION_VL03N
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_PATH
+*&---------------------------------------------------------------------*
+*       Sets the path to save the file
+*----------------------------------------------------------------------*
+
+FORM get_path .
+  CALL FUNCTION 'GUI_FILE_SAVE_DIALOG'
+    EXPORTING
+      window_title      = 'Save file'
+      default_extension = 'pdf'
+      file_filter       = '*.pdf'
+      initial_directory = 'C:/'
+    IMPORTING
+*     FILENAME          =
+*     PATH              =
+      fullpath          = xpath
+      user_action       = xuser_action
+*     FILE_ENCODING     =
+    .
+
+ENDFORM.                    " GET_PATH
+*&---------------------------------------------------------------------*
+*&      Form  SPOOL_CONVERT_TO_PDF
+*&---------------------------------------------------------------------*
+*       Saves a spool request to local drive in pdf format
+*----------------------------------------------------------------------*
+
+FORM spool_convert_to_pdf .
+
+  SELECT rqident INTO tsp01-rqident
+        UP TO 1 ROWS FROM tsp01
+        WHERE rqtitle = title ORDER BY PRIMARY KEY.
+  ENDSELECT. " Added by NDBS during Code Remediation
+
+  CALL FUNCTION 'CONVERT_OTFSPOOLJOB_2_PDF'
+    EXPORTING
+      src_spoolid              = tsp01-rqident
+    TABLES
+      pdf                      = t_pdf[]
+    EXCEPTIONS
+      err_no_otf_spooljob      = 1
+      err_no_spooljob          = 2
+      err_no_permission        = 3
+      err_conv_not_possible    = 4
+      err_bad_dstdevice        = 5
+      user_cancelled           = 6
+      err_spoolerror           = 7
+      err_temseerror           = 8
+      err_btcjob_open_failed   = 9
+      err_btcjob_submit_failed = 10
+      err_btcjob_close_failed  = 11
+      OTHERS                   = 12.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+  CALL FUNCTION 'GUI_DOWNLOAD'
+    EXPORTING
+      filename                = xpath
+      filetype                = 'BIN'
+    TABLES
+      data_tab                = t_pdf[]
+    EXCEPTIONS
+      file_write_error        = 1
+      no_batch                = 2
+      gui_refuse_filetransfer = 3
+      invalid_type            = 4
+      no_authority            = 5
+      unknown_error           = 6
+      header_not_allowed      = 7
+      separator_not_allowed   = 8
+      filesize_not_allowed    = 9
+      header_too_long         = 10
+      dp_error_create         = 11
+      dp_error_send           = 12
+      dp_error_write          = 13
+      unknown_dp_error        = 14
+      access_denied           = 15
+      dp_out_of_memory        = 16
+      disk_full               = 17
+      dp_timeout              = 18
+      file_not_found          = 19
+      dataprovider_exception  = 20
+      control_flush_error     = 21
+      OTHERS                  = 22.
+  IF sy-subrc = 0.
+    WRITE:/ 'Document saved successfully to: '.
+    WRITE:/ xpath.
+  ENDIF.
+
+ENDFORM.                    " SPOOL_CONVERT_TO_PDF
+*&---------------------------------------------------------------------*
+*&      Form  EMAIL
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM email .
+
+  SELECT rqident INTO tsp01-rqident
+          UP TO 1 ROWS FROM tsp01
+          WHERE rqtitle = title ORDER BY PRIMARY KEY.
+  ENDSELECT. " Added by NDBS during Code Remediation
+  CALL FUNCTION 'CONVERT_OTFSPOOLJOB_2_PDF'
+    EXPORTING
+      src_spoolid              = tsp01-rqident
+    TABLES
+      pdf                      = t_pdf[]
+    EXCEPTIONS
+      err_no_otf_spooljob      = 1
+      err_no_spooljob          = 2
+      err_no_permission        = 3
+      err_conv_not_possible    = 4
+      err_bad_dstdevice        = 5
+      user_cancelled           = 6
+      err_spoolerror           = 7
+      err_temseerror           = 8
+      err_btcjob_open_failed   = 9
+      err_btcjob_submit_failed = 10
+      err_btcjob_close_failed  = 11
+      OTHERS                   = 12.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+
+  DATA: packing_list TYPE TABLE OF sopcklsti1 WITH HEADER LINE.
+
+  DATA: i_itab    LIKE somlreci1 OCCURS 0   WITH HEADER LINE,
+        i_text    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_cont    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_head    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_subject LIKE sodocchgi1,
+        vnum      TYPE i,
+        entries   LIKE sy-tabix.
+
+
+  CLEAR pdf_name.
+  IF order = 'X'.
+    i_subject-obj_name = 'SlsOrder'.
+    WRITE vbeln TO vbeln NO-ZERO.
+    CONCATENATE  name1 ' SO -' vbeln
+       INTO   pdf_name .
+  ELSEIF packslip = 'X'.
+    i_subject-obj_name = 'PckSlip'.
+    WRITE pbeln TO pbeln NO-ZERO.
+    CONCATENATE name1 ' PS -' pbeln
+       INTO   pdf_name .
+  ELSEIF invoice = 'X'.
+    i_subject-obj_name = 'Inv'.
+    WRITE ibeln TO ibeln NO-ZERO.
+    CONCATENATE name1 ' INV -' ibeln
+       INTO  pdf_name .
+  ENDIF.
+
+  IF subject IS INITIAL.
+    i_subject-obj_descr = pdf_name.
+  ELSE.
+    i_subject-obj_descr = subject.
+  ENDIF.
+
+  i_subject-sensitivty = ' '.
+
+  i_text = 'Dear Customer,'.
+  APPEND i_text.
+  i_text = ' '.
+  APPEND i_text.
+  i_text = 'This e-mail has been sent from Stulz ATS by user ' .
+  i_text+49(10) = sy-uname.
+  APPEND i_text.
+
+*  i_text = 'Please open the attachment with Adobe Acrobat Reader.'.
+*  APPEND i_text.
+*  i_text = 'Should you have any questions, please reply to this e-mail'.
+*  APPEND i_text.
+*  i_text = 'or call us at 1-866-244-2673.'.
+*  APPEND i_text.
+*  i_text = ' '.
+*  APPEND i_text.
+*  i_text = 'Thank you for doing business with us.'.
+*  APPEND i_text.
+
+* Populate e-mail addresses
+  REFRESH i_itab.
+  i_itab-rec_type   = 'U'.
+  i_itab-receiver   = address1.
+  APPEND i_itab.
+  IF address2 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address2.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+  IF address3 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address3.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+  IF address4 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address4.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+
+  REFRESH i_cont.
+
+  CALL FUNCTION 'QCE1_CONVERT'
+    TABLES
+      t_source_tab         = t_pdf
+      t_target_tab         = i_cont
+    EXCEPTIONS
+      convert_not_possible = 1.
+
+  IF sy-subrc NE 0.
+    WRITE: / 'PDF Conversion Problem'.
+    EXIT.
+  ENDIF.
+
+  REFRESH packing_list.
+  packing_list-doc_size   = 2200.
+*  packing_list-transf_bin = ''.
+  packing_list-head_start = 1.
+  packing_list-head_num   = 0.
+  packing_list-body_start = 1.
+  packing_list-body_num   = 3.
+  packing_list-obj_descr  = 'Body text'.
+  packing_list-obj_name   = 'MAIL'.
+  packing_list-doc_type = 'RAW'.
+*  packing_list-doc_type = 'TXT'.
+  APPEND packing_list.          "  added back in - in prd
+
+  DESCRIBE TABLE i_cont LINES vnum.
+  READ TABLE i_cont INDEX vnum.
+  CLEAR packing_list.
+  packing_list-doc_size   = ( vnum - 1 ) * 255 + strlen( i_cont ).
+  packing_list-transf_bin = 'X'.
+  packing_list-head_start = 1.
+  packing_list-head_num   = 0.
+  packing_list-body_start = 1.
+  packing_list-body_num   = vnum.
+  packing_list-doc_type   = 'PDF'.
+  packing_list-obj_name   = 'MAIL'.
+*&  PACKING_LIST-OBJ_DESCR  = 'Attachment'.       " commented this out, added line below.
+  packing_list-obj_descr  = pdf_name.
+  APPEND packing_list.
+  REFRESH i_head.
+  i_head = 'HF Doc.pdf'.
+  APPEND i_head.
+
+*eject                                       " Form f6000... Continued 2
+
+*  CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+  CALL FUNCTION 'SO_DOCUMENT_SEND_API1'
+    EXPORTING
+      document_data              = i_subject
+      commit_work                = 'X'
+    TABLES
+      packing_list               = packing_list
+      object_header              = i_head
+      contents_bin               = i_cont
+      contents_txt               = i_text
+      receivers                  = i_itab
+    EXCEPTIONS
+      too_many_receivers         = 1
+      document_not_sent          = 2
+      document_type_not_exist    = 3
+      operation_no_authorization = 4
+      parameter_error            = 5
+      x_error                    = 6
+      enqueue_error              = 7
+      OTHERS                     = 8.
+
+  IF sy-subrc NE 0.
+    WRITE: / 'Send Failed to Customer:'.
+  ELSE.
+    WAIT UP TO 2 SECONDS.
+    IF sy-sysid = 'PRD'.
+      PERFORM initiate_mail_execute_program.
+    ENDIF.
+    WRITE:/ 'Send successfull'.
+  ENDIF.
+
+ENDFORM.                    " EMAIL
+
+*&---------------------------------------------------------------------*
+*&      Form  INITIATE_MAIL_EXECUTE_PROGRAM
+*&---------------------------------------------------------------------*
+*       Instructs mail send program for SAPCONNECT to send email.
+*----------------------------------------------------------------------*
+FORM initiate_mail_execute_program.
+
+  SUBMIT rsconn01 WITH mode = 'INT'
+                WITH output = 'X'
+                AND RETURN.
+ENDFORM.                    " INITIATE_MAIL_EXECUTE_PROGRAM
+*&---------------------------------------------------------------------*
+*&      Form  EMAIL_INV
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM email_inv .
+  SELECT rqident INTO tsp01-rqident
+            UP TO 1 ROWS FROM tsp01
+            WHERE rqtitle = title ORDER BY PRIMARY KEY.
+  ENDSELECT. " Added by NDBS during Code Remediation
+  CALL FUNCTION 'CONVERT_OTFSPOOLJOB_2_PDF'
+    EXPORTING
+      src_spoolid              = tsp01-rqident
+    TABLES
+      pdf                      = t_pdf[]
+    EXCEPTIONS
+      err_no_otf_spooljob      = 1
+      err_no_spooljob          = 2
+      err_no_permission        = 3
+      err_conv_not_possible    = 4
+      err_bad_dstdevice        = 5
+      user_cancelled           = 6
+      err_spoolerror           = 7
+      err_temseerror           = 8
+      err_btcjob_open_failed   = 9
+      err_btcjob_submit_failed = 10
+      err_btcjob_close_failed  = 11
+      OTHERS                   = 12.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+
+  DATA: packing_list TYPE TABLE OF sopcklsti1 WITH HEADER LINE.
+
+  DATA: i_itab    LIKE somlreci1 OCCURS 0   WITH HEADER LINE,
+        i_text    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_cont    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_head    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_subject LIKE sodocchgi1,
+        vnum      TYPE i,
+        entries   LIKE sy-tabix.
+
+
+  CLEAR pdf_name.
+  IF order = 'X'.
+    i_subject-obj_name = 'SlsOrder'.
+    WRITE vbeln TO vbeln NO-ZERO.
+    CONCATENATE  name1 ' SO -' vbeln
+       INTO   pdf_name .
+  ELSEIF packslip = 'X'.
+    i_subject-obj_name = 'PckSlip'.
+    WRITE pbeln TO pbeln NO-ZERO.
+    CONCATENATE name1 ' PS -' pbeln
+       INTO   pdf_name .
+  ELSEIF invoice = 'X'.
+    i_subject-obj_name = 'Inv'.
+    WRITE ibeln TO ibeln NO-ZERO.
+    CONCATENATE name1 ' INV -' ibeln
+       INTO  pdf_name .
+  ENDIF.
+
+  IF subject IS INITIAL.
+    i_subject-obj_descr = pdf_name.
+  ELSE.
+    i_subject-obj_descr = subject.
+  ENDIF.
+
+  i_subject-sensitivty = ' '.
+
+
+  i_text = 'Dear Customer,'.
+  APPEND i_text.
+  i_text = ' '.
+  APPEND i_text.
+  i_text = 'Attached is your invoice from Stulz Air Technology Inc.Please remit payment within your given terms.'.
+  APPEND i_text.
+*    i_text = 'If you should not be receiving this invoice, please email ar@stulz-ats.com and we will update our records. '.
+*    APPEND i_text.
+*    i_text = 'Direct replies to this email will not be answered as it is sent from an unmonitored email address. ' .
+*    APPEND i_text.
+*Begin of changes by US5092 9004338557 - Invoice SmartForm & Email Changes
+  i_text = 'STULZ requests all payments to be made via ACH. If you must send a check, please use'.
+  APPEND i_text.
+  i_text = 'this new address below'.
+*  APPEND i_text.
+*  i_text = ' '.
+  APPEND i_text.
+  i_text = 'Stulz Air Technology Systems, Inc.'.
+  APPEND i_text.
+  i_text = 'PO Box 220023'.
+  APPEND i_text.
+  i_text = 'Chantilly,VA 20153-0023'.
+  APPEND i_text.
+  i_text = 'Please direct any remittances or questions to ar@stulz-ats.com'.
+  APPEND i_text.
+*End of changes by US5092 9004338557 - Invoice SmartForm & Email Changes
+
+*  i_text = 'Please open the attachment with Adobe Acrobat Reader.'.
+*  APPEND i_text.
+*  i_text = 'Should you have any questions, please reply to this e-mail'.
+*  APPEND i_text.
+*  i_text = 'or call us at 1-866-244-2673.'.
+*  APPEND i_text.
+*  i_text = ' '.
+*  APPEND i_text.
+*  i_text = 'Thank you for doing business with us.'.
+*  APPEND i_text.
+
+* Populate e-mail addresses
+  REFRESH i_itab.
+  i_itab-rec_type   = 'U'.
+  i_itab-receiver   = address1.
+  APPEND i_itab.
+  IF address2 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address2.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+  IF address3 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address3.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+  IF address4 <> ''.
+    i_itab-rec_type   = 'U'.
+    i_itab-receiver   = address4.
+    i_itab-copy = 'X'.
+    APPEND i_itab.
+  ENDIF.
+
+  REFRESH i_cont.
+
+  CALL FUNCTION 'QCE1_CONVERT'
+    TABLES
+      t_source_tab         = t_pdf
+      t_target_tab         = i_cont
+    EXCEPTIONS
+      convert_not_possible = 1.
+
+  IF sy-subrc NE 0.
+    WRITE: / 'PDF Conversion Problem'.
+    EXIT.
+  ENDIF.
+
+  REFRESH packing_list.
+
+  packing_list-doc_size = 6000. " +US5092  04/24/24 9003332155 - Update to ZSD_EMAIL
+*  packing_list-transf_bin = ''.
+  packing_list-head_start = 1.
+  packing_list-head_num   = 0.
+  packing_list-body_start = 1.
+  packing_list-body_num   = 5.
+  packing_list-obj_descr  = 'Body text'.
+  packing_list-obj_name   = 'MAIL'.
+  packing_list-doc_type = 'RAW'.
+*  packing_list-doc_type = 'TXT'.
+  APPEND packing_list.          "  added back in - in prd
+
+  DESCRIBE TABLE i_cont LINES vnum.
+  READ TABLE i_cont INDEX vnum.
+  CLEAR packing_list.
+  packing_list-doc_size   = ( vnum - 1 ) * 255 + strlen( i_cont ).
+  packing_list-transf_bin = 'X'.
+  packing_list-head_start = 1.
+  packing_list-head_num   = 0.
+  packing_list-body_start = 1.
+  packing_list-body_num   = vnum.
+  packing_list-doc_type   = 'PDF'.
+  packing_list-obj_name   = 'MAIL'.
+*&  PACKING_LIST-OBJ_DESCR  = 'Attachment'.       " commented this out, added line below.
+  packing_list-obj_descr  = pdf_name.
+  APPEND packing_list.
+  REFRESH i_head.
+  i_head = 'HF Doc.pdf'.
+  APPEND i_head.
+
+*eject                                       " Form f6000... Continued 2
+
+*  CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+  CALL FUNCTION 'SO_DOCUMENT_SEND_API1'
+    EXPORTING
+      document_data              = i_subject
+      commit_work                = 'X'
+    TABLES
+      packing_list               = packing_list
+      object_header              = i_head
+      contents_bin               = i_cont
+      contents_txt               = i_text
+      receivers                  = i_itab
+    EXCEPTIONS
+      too_many_receivers         = 1
+      document_not_sent          = 2
+      document_type_not_exist    = 3
+      operation_no_authorization = 4
+      parameter_error            = 5
+      x_error                    = 6
+      enqueue_error              = 7
+      OTHERS                     = 8.
+
+  IF sy-subrc NE 0.
+    WRITE: / 'Send Failed to Customer:'.
+  ELSE.
+    WAIT UP TO 2 SECONDS.
+    IF sy-sysid = 'PRD'.
+      PERFORM initiate_mail_execute_program.
+    ENDIF.
+    WRITE:/ 'Send successfull'.
+  ENDIF.
+ENDFORM.                    " EMAIL_INV
+
+FORM email_inv_s4h.
+  DATA: packing_list TYPE TABLE OF sopcklsti1 WITH HEADER LINE.
+
+  DATA: i_itab    LIKE somlreci1 OCCURS 0   WITH HEADER LINE,
+        i_text    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_cont    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_head    LIKE solisti1  OCCURS 0   WITH HEADER LINE,
+        i_subject LIKE sodocchgi1,
+        vnum      TYPE i,
+        entries   LIKE sy-tabix.
+
+  DATA send_request       TYPE REF TO cl_bcs.
+  DATA document           TYPE REF TO cl_document_bcs.
+  DATA sender             TYPE REF TO cl_sapuser_bcs.
+  DATA recipient          TYPE REF TO if_recipient_bcs.
+  DATA exception_info     TYPE REF TO if_os_exception_info.
+  DATA bcs_exception      TYPE REF TO cx_bcs.
+  DATA l_subject          TYPE so_obj_des.
+  DATA l_sender           TYPE syuname.
+  DATA :l_distr_list TYPE so_obj_nam,
+        lo_recipient TYPE REF TO if_recipient_bcs.
+
+  DATA l_mailtext         TYPE soli_tab.
+  DATA : l_message     TYPE so_text255,
+         im_message    TYPE so_text255,
+         return        TYPE bapiret2,
+         wc_start_time TYPE char14,
+         wc_end_time   TYPE char14,
+         wf_date       TYPE char10,
+         lv_pdf_size   TYPE i.
+
+  DATA lv_string TYPE string.
+  DATA main_text      TYPE bcsy_text.
+  DATA binary_content TYPE solix_tab.
+  DATA size           TYPE so_obj_len.
+  DATA : sent_to_all  TYPE os_boolean,
+         pdf_xstring  TYPE xstring,
+         it_pdf_table TYPE  rcl_bag_tline,
+         wa_pdfline   LIKE LINE OF it_pdf_table,
+         pdf_content  TYPE solix_tab,
+         lp_pdf_size  TYPE so_obj_len,
+         wf_char14    TYPE char14,
+         wf_name1     TYPE kna1-name1.
+  FIELD-SYMBOLS:  <l_xline>      TYPE x.
+  DATA: lt_recipients TYPE STANDARD TABLE OF ad_smtpadr.
+
+  SELECT rqident INTO tsp01-rqident
+              UP TO 1 ROWS FROM tsp01
+              WHERE rqtitle = title ORDER BY PRIMARY KEY.
+  ENDSELECT. " Added by NDBS during Code Remediation
+
+  CALL FUNCTION 'CONVERT_OTFSPOOLJOB_2_PDF'
+    EXPORTING
+      src_spoolid              = tsp01-rqident
+    IMPORTING
+      pdf_bytecount            = lv_pdf_size
+    TABLES
+      pdf                      = t_pdf[]
+    EXCEPTIONS
+      err_no_otf_spooljob      = 1
+      err_no_spooljob          = 2
+      err_no_permission        = 3
+      err_conv_not_possible    = 4
+      err_bad_dstdevice        = 5
+      user_cancelled           = 6
+      err_spoolerror           = 7
+      err_temseerror           = 8
+      err_btcjob_open_failed   = 9
+      err_btcjob_submit_failed = 10
+      err_btcjob_close_failed  = 11
+      OTHERS                   = 12.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+  DATA soli_tab TYPE soli_tab.
+  CALL FUNCTION 'SX_TABLE_LINE_WIDTH_CHANGE'
+    TABLES
+      content_in  = t_pdf
+      content_out = soli_tab
+    EXCEPTIONS
+      OTHERS      = 4.
+*  -----------------------------------------------
+  DATA e_xstring TYPE xstring.
+  CALL FUNCTION 'SCMS_BINARY_TO_XSTRING'
+    EXPORTING
+      input_length = lv_pdf_size
+    IMPORTING
+      buffer       = e_xstring
+    TABLES
+      binary_tab   = soli_tab
+    EXCEPTIONS
+      OTHERS       = 2.
+*  -----------------------------------------------
+  DATA lt_solix TYPE solix_tab.
+  CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+    EXPORTING
+      buffer     = e_xstring
+    TABLES
+      binary_tab = lt_solix.
+
+
+  CLEAR pdf_name.
+  IF order = 'X'.
+    i_subject-obj_name = 'SlsOrder'.
+    WRITE vbeln TO vbeln NO-ZERO.
+    CONCATENATE  name1 ' SO -' vbeln
+       INTO   pdf_name .
+  ELSEIF packslip = 'X'.
+    i_subject-obj_name = 'PckSlip'.
+    WRITE pbeln TO pbeln NO-ZERO.
+    CONCATENATE name1 ' PS -' pbeln
+       INTO   pdf_name .
+  ELSEIF invoice = 'X'.
+    i_subject-obj_name = 'Inv'.
+    WRITE ibeln TO ibeln NO-ZERO.
+    CONCATENATE name1 ' INV -' ibeln
+       INTO  pdf_name .
+  ENDIF.
+
+  IF subject IS INITIAL.
+    i_subject-obj_descr = pdf_name.
+    l_subject = pdf_name.
+  ELSE.
+    i_subject-obj_descr = subject.
+     l_subject = subject.
+  ENDIF.
+
+  i_subject-sensitivty = ' '.
+
+  IF NOT address1 IS INITIAL.
+    APPEND address1 TO lt_recipients.
+  ENDIF.
+
+  IF NOT address2 IS INITIAL.
+    APPEND address2 TO lt_recipients.
+  ENDIF.
+
+  IF NOT address3 IS INITIAL.
+    APPEND address3 TO lt_recipients.
+  ENDIF.
+
+  IF NOT address4 IS INITIAL.
+    APPEND address4 TO lt_recipients.
+  ENDIF.
+
+
+
+  TRY.
+* Create persistent send request
+      send_request = cl_bcs=>create_persistent( ).
+
+      im_message = 'Dear Customer, '.
+      APPEND im_message TO l_mailtext.
+       im_message = '  '.
+      APPEND im_message TO l_mailtext.
+      im_message = |Attached is your invoice from Stulz Air Technology Inc. Please remit payment within your given terms.|.
+      APPEND im_message TO l_mailtext.
+      im_message = 'STULZ requests all payments to be made via ACH. If you must send a check, please use this new address below:'.
+      APPEND im_message TO l_mailtext.
+      im_message = '  '.
+      APPEND im_message TO l_mailtext.
+      im_message =  'Stulz Air Technology Systems, Inc. '.
+      APPEND im_message TO l_mailtext.
+      im_message = 'PO Box 220023 '.
+      APPEND im_message TO l_mailtext.
+      im_message = 'Chantilly,VA 20153-0023'.
+      APPEND im_message TO l_mailtext.
+       im_message = '  '.
+      APPEND im_message TO l_mailtext.
+      im_message =  'Please direct any remittances or questions to ar@stulz-ats.com'.
+      APPEND im_message TO l_mailtext.
+
+
+
+* Create the Document
+      document = cl_document_bcs=>create_document(
+                          i_type    = 'RAW'
+                          i_text    = l_mailtext
+                          i_subject = l_subject ).
+
+*Add recipients.
+      LOOP AT lt_recipients INTO DATA(lv_email).
+
+        lo_recipient = cl_cam_address_bcs=>create_internet_address(
+                         i_address_string = lv_email ).
+
+        send_request->add_recipient(
+         i_recipient = lo_recipient
+         i_express   = abap_true ).
+
+      ENDLOOP.
+
+*-----------------------------------------------------------------------
+* Add PDF attachment
+*-----------------------------------------------------------------------
+      document->add_attachment(
+       i_attachment_type    = 'PDF'
+       i_attachment_subject = |{ pdf_name }|
+       i_att_content_hex    = lt_solix ).
+
+
+* Add document to send request
+      CALL METHOD send_request->set_document( document ).
+
+* Get sender object from user
+      l_sender = sy-uname.
+      TRANSLATE l_sender TO UPPER CASE.
+      TRY.
+          sender = cl_sapuser_bcs=>create( l_sender ).
+        CATCH cx_address_bcs INTO bcs_exception.
+          l_message = bcs_exception->get_text( ).
+          return-message = l_message.
+          EXIT.
+      ENDTRY.
+* Add sender
+      TRY.
+          CALL METHOD send_request->set_sender
+            EXPORTING
+              i_sender = sender.
+        CATCH cx_send_req_bcs.
+      ENDTRY.
+
+
+* Set that you don't need a Return Status E-mail
+      CALL METHOD send_request->set_status_attributes
+        EXPORTING
+          i_requested_status = 'E'
+          i_status_mail      = 'E'.
+
+      send_request->set_send_immediately( ' ' ).
+* Send document
+      CALL METHOD send_request->send( ).
+
+      COMMIT WORK.
+      WRITE:/ 'Send successfull'.
+
+    CATCH cx_bcs INTO bcs_exception.
+
+      l_message = bcs_exception->get_text( ).
+      return-message = l_message.
+      WRITE: / 'Send Failed to Customer:'.
+      WRITE :/ l_message.
+  ENDTRY.
+ENDFORM.
