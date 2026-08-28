@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZR5092_TRAVEL</ARBGB>
+    <MASTERLANG>E</MASTERLANG>
+    <STEXT>Message Class 5092</STEXT>
+   </T100A>
+   <T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZR5092_TRAVEL</ARBGB>
+     <MSGNR>001</MSGNR>
+     <TEXT>Travel ID &amp;1 is already approved</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZR5092_TRAVEL</ARBGB>
+     <MSGNR>002</MSGNR>
+     <TEXT>Travel ID &amp;1 is already rejected</TEXT>
+    </T100>
+   </T100>
+  </asx:values>
+ </asx:abap>
+</abapGit>

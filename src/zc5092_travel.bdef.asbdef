@@ -1,0 +1,12 @@
+projection;
+strict ( 2 );
+
+define behavior for ZC5092_TRAVEL alias travel
+use etag
+{
+  use create;
+  use update;
+  use delete;
+  use action approve_travel;
+  use action cancel_travel;
+}
