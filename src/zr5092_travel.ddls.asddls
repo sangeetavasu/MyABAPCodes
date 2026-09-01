@@ -17,7 +17,7 @@ association to /dmo/customer as _Customer on $projection.CustomerId = _Customer.
     changed_at as ChangedAt,
     @Semantics.user.lastChangedBy: true
     changed_by as ChangedBy,
-   concat_with_space( _Customer.first_name,_Customer.last_name, 1 ) as CustomerName,
+    concat_with_space( _Customer.first_name,_Customer.last_name, 1 ) as CustomerName,
     _Agency,
     _Customer
 }

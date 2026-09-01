@@ -20,6 +20,12 @@
      <MSGNR>002</MSGNR>
      <TEXT>Travel ID &amp;1 is already rejected</TEXT>
     </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZR5092_TRAVEL</ARBGB>
+     <MSGNR>003</MSGNR>
+     <TEXT>Customer &amp;1 is not a valid customer</TEXT>
+    </T100>
    </T100>
   </asx:values>
  </asx:abap>

@@ -7,7 +7,8 @@ define root view entity ZC5092_TRAVEL  provider contract transactional_query
  as projection on ZR5092_TRAVEL
  {
  
-@ObjectModel.text.element: [ 'AgencyName' ] 
+@ObjectModel.text.element: [ 'AgencyName' ]
+@Consumption.valueHelpDefinition: [{  entity.name: '/DMO/I_Agency_StdVH', entity.element: 'AgencyID'  }] 
     key AgencyId,
 @Search.defaultSearchElement: true    
     key TravelId,
