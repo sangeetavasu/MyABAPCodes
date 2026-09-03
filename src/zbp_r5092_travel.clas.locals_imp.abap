@@ -12,6 +12,10 @@ CLASS lhc_ZR5092_TRAVEL DEFINITION INHERITING FROM cl_abap_behavior_handler.
        keys FOR ACTION travel~cancel_travel RESULT result.
     METHODS validate_customer FOR VALIDATE ON SAVE
        keys FOR travel~validate_customer.
+    METHODS overall_status FOR DETERMINE ON MODIFY
+       keys FOR travel~overall_status.
+    METHODS earlynumbering_create FOR NUMBERING
+       entities FOR CREATE travel.
 
 ENDCLASS.
 
@@ -111,23 +115,59 @@ CLASS lhc_ZR5092_TRAVEL IMPLEMENTATION.
 
     LOOP AT lt_travel INTO DATA(ls_travel).
 
-        READ TABLE tb_valid_customers into data(wa_valid_customers) WITH KEY customer_id = ls_travel-CustomerId.
-        IF sy-subrc <> 0.
-          " Customer is not specified
-          APPEND VALUE #(  %key = ls_travel-%key ) TO failed-travel.
-          APPEND VALUE #(  %key = ls_travel-%key
-                           %msg = new_message( id       = 'ZR5092_TRAVEL'
-                                               number   = '003'
-                                               v1       = ls_travel-CustomerID
-                                               severity = if_abap_behv_message=>severity-error )
-                           %element-customerid = if_abap_behv=>mk-on )
+      READ TABLE tb_valid_customers INTO DATA(wa_valid_customers) WITH KEY customer_id = ls_travel-CustomerId.
+      IF sy-subrc <> 0.
+        " Customer is not specified
+        APPEND VALUE #(  %key = ls_travel-%key ) TO failed-travel.
+        APPEND VALUE #(  %key = ls_travel-%key
+                         %msg = new_message( id       = 'ZR5092_TRAVEL'
+                                             number   = '003'
+                                             v1       = ls_travel-CustomerID
+                                             severity = if_abap_behv_message=>severity-error )
+                         %element-customerid = if_abap_behv=>mk-on )
 
-                         to  reported-travel.
-        ENDIF.
+                       TO  reported-travel.
+      ENDIF.
 
     ENDLOOP.
 
   ENDMETHOD.
 
+
+  METHOD earlynumbering_create.
+    DATA(agencyid) = /lrn/cl_s4d437_model=>get_agency_by_user(  ).
+
+    mapped-travel = CORRESPONDING #( entities ).
+
+    LOOP AT mapped-travel ASSIGNING FIELD-SYMBOL(<mapping>).
+      <mapping>-AgencyId = agencyid.
+      <mapping>-TravelId = /lrn/cl_s4d437_model=>get_next_travelid( ).
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD overall_status.
+
+    READ ENTITIES OF ZR5092_travel IN LOCAL MODE
+           ENTITY travel
+              FIELDS ( status )
+              WITH CORRESPONDING #( keys )
+              RESULT DATA(lt_travel).
+
+    LOOP AT lt_travel ASSIGNING FIELD-SYMBOL(<travel>).
+      IF <travel>-status = ' '.
+        MODIFY ENTITIES OF ZR5092_travel IN LOCAL MODE
+           ENTITY travel
+              UPDATE
+                 FIELDS ( Status )
+                 WITH VALUE #( FOR key IN keys ( %tky = key-%tky
+                                                  Status = 'N' ) )
+                             REPORTED DATA(update_reported).
+        reported = CORRESPONDING #( DEEP update_reported ).
+
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
 
 ENDCLASS.

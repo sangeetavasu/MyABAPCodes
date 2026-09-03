@@ -6,16 +6,17 @@ persistent table z5092_travel
 lock master
 authorization master ( instance )
 etag master ChangedAt
+early numbering
 
 {
   create ( authorization : global );
   update;
   delete;
-  field ( readonly :update,  mandatory : create ) AgencyId, TravelId;
+  field ( readonly ) AgencyId, TravelId;
   field ( mandatory ) Description, CustomerID, BeginDate, EndDate;
   field (readonly ) ChangedAt, Status, ChangedBy;
   validation validate_customer on save { create ; field CustomerID; }
-
+  determination overall_status on modify { create; }
   action approve_travel result [0..1] $self;
   action cancel_travel result [0..1] $self;
 
