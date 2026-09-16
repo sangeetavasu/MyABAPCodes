@@ -1,0 +1,576 @@
+REPORT zmmpp_exception_mess.
+
+*&---------------------------------------------------------------------*
+*& Report  ZMMPP_EXCEPTION_MESS
+*&
+*&---------------------------------------------------------------------*
+* Copyright: itelligence Consulting, Inc.
+*
+* Title: Exception Message Report
+* Transaction:
+*
+* Client: STULZ Air Technology Systems, Inc
+* Programmer: Igor Cepoi itelligence
+* Date Create: 12/09/2016
+*
+* Description:
+*  This report will display output similar to output provided in table
+*  MDPSX in function  module MD_STOCK_REQUIREMENTS_LIST_API
+*
+************************************************************************
+* Modification History
+*-----------------------------------------------------------------------
+* By: Sangeeta Vasudeva
+* Copyright: NTT data Business Solutions
+* Date: 09/12/2023
+* Issue # Extend the ZMD04 to also allow In-House MRP controllers to report exceptions
+* Reason:
+*  1.
+*-----------------------------------------------------------------------
+
+TYPE-POOLS: slis.
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+TABLES: lfa1, mdkp,                           "#EC CI_USAGE_OK[2268085]
+        t458a, marc.
+
+TYPES: BEGIN OF ty_out,
+         matnr  TYPE  mdkp-matnr,             "#EC CI_USAGE_OK[2268085]
+         maktx  TYPE  makt-maktx,
+*          plwrk   TYPE  mdkp-plwrk,
+         auskt  TYPE  t458a-auskt,
+         auslt  TYPE  t458b-auslt,
+         lifnr  TYPE  mdps-lifnr,
+         name1  TYPE  lfa1-name1,
+         etmen  TYPE  mdps-etmen,
+         mng01  TYPE  mdps-mng01,
+         qtrec  TYPE  mdps-etmen,
+         dat01  TYPE  mdps-dat01,
+         dat00  TYPE  mdps-dat00,
+         delnr  TYPE  mdps-delnr,
+         delps  TYPE  mdps-delps,
+         umdat  TYPE  mdps-umdat,
+*begin of changes 9003040288 - Modify custom Query ZMD04
+         dsnam  TYPE t024d-dsnam,
+         aufnr  TYPE afpo-aufnr,
+         psmng  TYPE afpo-psmng,
+         wemng  TYPE afpo-wemng,
+         remqty TYPE afpo-wemng,
+         werks  TYPE marc-werks,
+*End of changes 9003040288 - Modify custom Query ZMD04
+       END OF ty_out.
+*  - Added pseudo comment to suppress non-critical ATC warning
+DATA: gt_out TYPE TABLE OF ty_out,
+      gs_out TYPE ty_out.
+
+DATA: variant_in  LIKE disvariant.     "Display Variant Fields
+DATA: variant_out LIKE disvariant.     "Display Variant Fields
+DATA: k_exit(1) TYPE c.                "Display Variant Fields
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-b01.
+  PARAMETERS: p_pur AS CHECKBOX.
+
+  SELECT-OPTIONS: s_werks FOR    marc-werks,
+                  s_lifnr   FOR  lfa1-lifnr,
+                  s_mtart   FOR  mdkp-mtart,  "#EC CI_USAGE_OK[2268085]
+                  s_matnr   FOR  mdkp-matnr,  "#EC CI_USAGE_OK[2268085]
+                  s_beskz   FOR  mdkp-beskz,  "#EC CI_USAGE_OK[2268085]
+                  s_dispo   FOR  mdkp-dispo,  "#EC CI_USAGE_OK[2268085]
+                  s_dismm   FOR  mdkp-dismm,  "#EC CI_USAGE_OK[2268085]
+                  s_selgp   FOR  t458a-selgp,
+                  s_auskt   FOR  t458a-auskt.
+
+*  - Added pseudo comment to suppress non-critical ATC warning
+SELECTION-SCREEN END OF BLOCK b1.
+
+*begin of changes 9003040288 - Modify custom Query ZMD04
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-b02.
+  PARAMETERS: p_inh AS CHECKBOX.
+  SELECT-OPTIONS : s_werkin FOR    marc-werks,
+                   s_dispin  FOR  mdkp-dispo, "#EC CI_USAGE_OK[2268085]
+                  s_selpin  FOR  t458a-selgp,
+                  s_austin   FOR  t458a-auskt.
+SELECTION-SCREEN END OF BLOCK b2.
+*  - Added pseudo comment to suppress non-critical ATC warning
+PARAMETERS: p_var TYPE slis_vari.
+*End of changes 9003040288 - Modify custom Query ZMD04
+
+
+*begin of changes 9003040288 - Modify custom Query ZMD04
+*----------------------------------------------------------------------*
+*      AT SELECTION-SCREEN ON VALUE-REQUEST FOR P_VARI Event
+*----------------------------------------------------------------------*
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_var.  "Matchcode for Variant
+
+* Search help for ALV Display Variants
+  variant_in-report   = sy-repid.
+  CALL FUNCTION 'REUSE_ALV_VARIANT_F4'
+    EXPORTING
+      is_variant = variant_in
+      i_save     = 'A'
+    IMPORTING
+      e_exit     = k_exit
+      es_variant = variant_out
+    EXCEPTIONS
+      not_found  = 2.
+
+  IF sy-subrc = 2.
+    MESSAGE ID sy-msgid TYPE 'S'      NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ELSE.
+    IF k_exit = space.
+      p_var = variant_out-variant.
+    ENDIF.
+  ENDIF.
+*End of changes 9003040288 - Modify custom Query ZMD04
+
+
+
+START-OF-SELECTION.
+
+
+  IF p_pur = 'X'. "9003040288 - Modify custom Query ZMD04
+    REFRESH gt_out.
+    PERFORM get_data.
+  ENDIF. "+ 9003040288 - Modify custom Query ZMD04
+
+*Begin of changes 9003040288 - Modify custom Query ZMD04
+  IF p_inh = 'X'.
+    PERFORM get_data_inhouse.
+  ENDIF.
+*End of changes 9003040288 - Modify custom Query ZMD04
+
+  IF NOT gt_out IS INITIAL.
+    PERFORM display.
+  ELSE.
+    MESSAGE 'No data Found' TYPE 'I'.
+  ENDIF.
+
+
+
+END-OF-SELECTION.
+
+*&---------------------------------------------------------------------*
+*&      Form  get_data
+*&---------------------------------------------------------------------*
+FORM get_data .
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+*  DATA: lt_mdkp  TYPE TABLE OF mdkp,          "#EC CI_USAGE_OK[2268085]
+*        ls_mdkp  TYPE mdkp,                   "#EC CI_USAGE_OK[2268085]
+  DATA: lt_mdkp  TYPE TABLE OF mdma,          "#EC CI_USAGE_OK[2268085]
+        ls_mdkp  TYPE mdma,
+*  - Added pseudo comment to suppress non-critical ATC warning
+        lt_mdpsx TYPE TABLE OF mdps,
+        ls_mdpsx TYPE mdps.
+  DATA: lt_t458a TYPE TABLE OF t458a,
+        ls_t458a TYPE t458a,
+        lt_t458b TYPE TABLE OF t458b,
+        ls_t458b TYPE t458b.
+  DATA: lt_lfa1 TYPE TABLE OF lfa1,
+        ls_lfa1 TYPE lfa1.
+
+  DATA: lt_ekes TYPE TABLE OF ekes,
+        ls_ekes TYPE ekes.
+
+  DATA: lv_maktx  TYPE makt-maktx.
+  DATA: tb_t024d TYPE TABLE OF t024d,
+        wa_t024d LIKE LINE OF tb_t024d.
+
+  REFRESH lt_lfa1.
+  SELECT lifnr name1 FROM lfa1
+    INTO CORRESPONDING FIELDS OF TABLE lt_lfa1.
+  SORT lt_lfa1 BY lifnr.
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+*Begin of comment by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+*  SELECT matnr plwrk dispo             "#EC CI_DB_OPERATION_OK[2268085]
+*    INTO CORRESPONDING FIELDS OF TABLE lt_mdkp
+*    FROM mdkp
+*    WHERE mdkp~mtart IN s_mtart
+*      AND mdkp~matnr IN s_matnr
+*      AND mdkp~beskz IN s_beskz
+*      AND mdkp~dispo IN s_dispo
+*      AND mdkp~dispo IN s_dismm.              "#EC CI_USAGE_OK[2268085]
+*End of comment by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+
+*Begin of changes by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+*MRP Area table to be used instead after S4
+
+  SELECT marc~matnr marc~werks marc~dispo "#EC CI_DB_OPERATION_OK[2268085]
+   INTO CORRESPONDING FIELDS OF TABLE lt_mdkp
+   FROM marc
+    INNER JOIN mara ON mara~matnr = marc~matnr
+   WHERE mara~matnr IN s_matnr
+   AND mara~mtart IN s_mtart
+   AND marc~werks IN s_werks
+   AND marc~dispo IN s_dispo
+   AND marc~dismm IN s_dismm
+   AND marc~beskz IN s_beskz.
+*End of changes by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+
+
+*  - Added pseudo comment to suppress non-critical ATC warning
+  SORT lt_mdkp BY matnr werks.
+*  DELETE ADJACENT DUPLICATES FROM lt_mdkp
+*  COMPARING matnr plwrk.
+  DELETE ADJACENT DUPLICATES FROM lt_mdkp
+ COMPARING matnr werks.
+
+  SELECT * FROM t458a
+    INTO CORRESPONDING FIELDS OF TABLE lt_t458a.
+  SORT lt_t458a BY aussl.
+
+  SELECT * FROM t458b
+    INTO CORRESPONDING FIELDS OF TABLE lt_t458b
+    WHERE spras = sy-langu ORDER BY PRIMARY KEY.
+  SORT lt_t458a BY aussl.
+
+*Begin of changes 9003040288 - Modify custom Query ZMD04
+*Obtain the various descriptions for MRP controller.
+  SELECT dispo dsnam FROM t024d
+  INTO CORRESPONDING FIELDS OF TABLE tb_t024d.
+*End of changes 9003040288 - Modify custom Query ZMD04
+
+  LOOP AT lt_mdkp INTO ls_mdkp.
+
+    REFRESH lt_mdpsx.
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+    CALL FUNCTION 'MD_STOCK_REQUIREMENTS_LIST_API'
+    "#EC CI_USAGE_OK[2268085]
+    "#EC CI_USAGE_OK[3211383]
+    "#EC CI_USAGE_OK[2227532]
+    "#EC CI_USAGE_OK[2227579]
+*  - Added pseudo comment to suppress non-critical ATC warning
+      EXPORTING
+        matnr                    = ls_mdkp-matnr
+        werks                    = ls_mdkp-werks
+      TABLES
+        mdpsx                    = lt_mdpsx
+      EXCEPTIONS
+        material_plant_not_found = 1
+        plant_not_found          = 2
+        OTHERS                   = 3.
+    IF sy-subrc <> 0.
+    ENDIF.
+
+    IF NOT s_lifnr[] IS INITIAL.
+      DELETE lt_mdpsx WHERE NOT lifnr IN s_lifnr[].
+      CHECK NOT lt_mdpsx IS INITIAL.
+    ENDIF.
+
+    CLEAR lv_maktx.
+    SELECT SINGLE maktx INTO lv_maktx
+      FROM makt
+      WHERE matnr = ls_mdkp-matnr
+        AND spras = sy-langu.
+
+    LOOP AT lt_mdpsx INTO ls_mdpsx.
+      CLEAR gs_out.
+
+      CHECK ls_mdpsx-mng01 > 0.
+      CHECK ls_mdpsx-plumi = '+'.
+      CHECK ( ls_mdpsx-delkz = 'BE' OR ls_mdpsx-delkz = 'LA' ) .
+
+      CLEAR ls_t458a.
+      READ TABLE lt_t458a INTO ls_t458a
+        WITH KEY aussl = ls_mdpsx-aussl
+        BINARY SEARCH.
+
+      CHECK ls_t458a-selgp IN s_selgp[].
+      CHECK ls_t458a-auskt IN s_auskt[].
+
+
+      gs_out-matnr = ls_mdkp-matnr.
+      gs_out-werks = ls_mdkp-werks.
+      gs_out-maktx = lv_maktx.
+*      gs_out-plwrk = ls_mdkp-plwrk.
+      gs_out-lifnr = ls_mdpsx-lifnr.
+*Begin of changes 9003040288 - Modify custom Query ZMD04
+      READ TABLE tb_t024d INTO wa_t024d WITH KEY dispo = ls_mdkp-dispo.
+      IF sy-subrc = 0.
+        gs_out-dsnam = wa_t024d-dsnam.
+      ENDIF.
+*End of changes 9003040288 - Modify custom Query ZMD04
+      CLEAR ls_lfa1.
+      READ TABLE lt_lfa1 INTO ls_lfa1
+        WITH KEY lifnr = gs_out-lifnr
+        BINARY SEARCH .
+      gs_out-name1 = ls_lfa1-name1.
+
+      IF ls_mdpsx-delkz = 'LA'.
+*        SELECT SINGLE menge INTO gs_out-etmen
+*          FROM ekpo
+*          WHERE ebeln = ls_mdpsx-delnr
+*            AND ebelp = ls_mdpsx-delps.
+        REFRESH lt_ekes.
+        SELECT menge
+          INTO CORRESPONDING FIELDS OF TABLE lt_ekes
+          FROM ekes
+          WHERE ebeln = ls_mdpsx-delnr
+            AND ebelp = ls_mdpsx-delps
+            AND etens = ls_mdpsx-delet.
+        LOOP AT lt_ekes INTO ls_ekes.
+          gs_out-etmen = gs_out-etmen + ls_ekes-menge.
+        ENDLOOP.
+      ELSE.
+        gs_out-etmen = ls_mdpsx-etmen.
+      ENDIF.
+
+      gs_out-mng01 = ls_mdpsx-mng01.
+*      IF ls_mdpsx-delkz = 'BE'.
+      gs_out-qtrec = gs_out-etmen - ls_mdpsx-mng01.
+*      ENDIF.
+      gs_out-dat01 = ls_mdpsx-dat01.
+      gs_out-dat00 = ls_mdpsx-dat00.
+      gs_out-delnr = ls_mdpsx-delnr.
+      gs_out-delps = ls_mdpsx-delps.
+      gs_out-umdat = ls_mdpsx-umdat.
+      gs_out-auskt = ls_t458a-auskt.
+
+      CLEAR ls_t458b.
+      READ TABLE lt_t458b INTO ls_t458b "#EC CI_SORTED " Added by NDBS during Code Remediation
+        WITH KEY aussl = ls_mdpsx-aussl
+        BINARY SEARCH.
+      gs_out-auslt = ls_t458b-auslt.
+
+      APPEND gs_out TO gt_out.
+    ENDLOOP.
+
+*    IF sy-subrc <> 0.
+*      CLEAR gs_out.
+*      gs_out-matnr = ls_mdkp-matnr.
+*      gs_out-maktx = lv_maktx.
+**      gs_out-plwrk = ls_mdkp-plwrk.
+*      APPEND gs_out TO gt_out.
+*    ENDIF.
+
+  ENDLOOP.
+
+ENDFORM.                    " get_data
+
+*&---------------------------------------------------------------------*
+*&      Form  display
+*&---------------------------------------------------------------------*
+FORM display .
+
+  DATA: lv_repid  TYPE sy-repid.
+
+  DATA: lt_fcat TYPE slis_t_fieldcat_alv,
+        ls_fcat TYPE LINE OF slis_t_fieldcat_alv,
+        ls_layo TYPE slis_layout_alv.
+
+  DEFINE fill_fieldcat.
+    ls_fcat-fieldname     = &1.
+    ls_fcat-tabname       = 'GT_OUT'.
+    IF  NOT &4 IS INITIAL.
+      ls_fcat-seltext_s = &4.
+      ls_fcat-seltext_l = &4.
+      ls_fcat-seltext_m = &4.
+    ELSE.
+      ls_fcat-ref_tabname   = &2.
+      ls_fcat-ref_fieldname = &3.
+    ENDIF.
+    IF NOT &5 IS INITIAL.
+      ls_fcat-outputlen = &5.
+    ENDIF.
+    APPEND ls_fcat TO lt_fcat.
+    CLEAR ls_fcat.
+  END-OF-DEFINITION.
+
+
+  fill_fieldcat   'MATNR'   'MDKP'    'MATNR'   'Material Number'                 20.
+    fill_fieldcat   'WERKS'   'MDKP'    'WERKS'   'Plant'                 10.
+*  fill_fieldcat   'PLWRK'   'MDKP'    'PLWRK'   'Plant'                           5.
+  fill_fieldcat   'MAKTX'   'MAKT'    'MAKTX'   'Material Description'            35.
+  fill_fieldcat   'DSNAM'   'T024D'    'DSNAM'   'MRP Controller'               20. "+US5092 9003040288 - Modify custom Query ZMD04
+  fill_fieldcat   'AUSKT'   'T458A'   'AUSKT'   'Exception Message Code'          10.
+  fill_fieldcat   'AUSLT'   'T458B'   'AUSLT'   'Exception Message Description'   35.
+  fill_fieldcat   'LIFNR'   'MDPS'    'LIFNR'   'Vendor Number'                   11 .
+  fill_fieldcat   'NAME1'   'LFA1'    'NAME1'   'Vendor Name'                     15 .
+  fill_fieldcat   'DELNR'   'MDPS'    'DELNR'   'Purchase Order'                  15.
+  fill_fieldcat   'DELPS'   'MDPS'    'DELPS'   'Line Item'                       15.
+  fill_fieldcat   'ETMEN'   'MDPS'    'ETMEN'   'Order Quantity'                  15.
+  fill_fieldcat   'MNG01'   'MDPS'    'MNG01'   'Qty Remaining'                   15.
+  fill_fieldcat   'QTREC'   'MDPS'    'ETMEN'   'Qty Received'                    15.
+  fill_fieldcat   'DAT01'   'MDPS'    'DAT01'   'Delivery Date'                   13.
+  fill_fieldcat   'DAT00'   'MDPS'    'DAT00'   'Purchasing Date'                 15.
+  fill_fieldcat   'UMDAT'   'MDPS'    'UMDAT'   'Rescheduling Date'               20.
+*begin of changes 9003040288 - Modify custom Query ZMD04
+
+  fill_fieldcat   'AUFNR'   'AFPO'    'AUFNR'   'Production Order'               20.
+  fill_fieldcat   'PSMNG'   'AFPO'    'PSMNG'   'Production Order Quantity'               20.
+  fill_fieldcat   'WEMNG'   'MDPS'    'WEMNG'   'Prod order delivered'               20.
+  fill_fieldcat   'REMQTY'   'MDPS'    'WEMNG'   'ProdOrd Remaining Qt'               20.
+*End of changes 9003040288 - Modify custom Query ZMD04
+
+*  ls_layo-colwidth_optimize = 'X'.
+  lv_repid = sy-repid.
+
+  CALL FUNCTION 'REUSE_ALV_LIST_DISPLAY'
+    EXPORTING
+*     I_INTERFACE_CHECK  = ' '
+*     I_BYPASSING_BUFFER =
+*     I_BUFFER_ACTIVE    = ' '
+      i_callback_program = lv_repid
+      is_layout          = ls_layo
+      it_fieldcat        = lt_fcat
+*     I_DEFAULT          = 'X'
+      i_save             = 'X'
+      is_variant         = variant_out
+    TABLES
+      t_outtab           = gt_out
+    EXCEPTIONS
+      program_error      = 1
+      OTHERS             = 2.
+  IF sy-subrc <> 0.
+  ENDIF.
+
+
+ENDFORM.                    " display
+*&---------------------------------------------------------------------*
+*&      Form  GET_DATA_INHOUSE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM get_data_inhouse .
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+  DATA: lt_mdkp  TYPE TABLE OF marc,          "#EC CI_USAGE_OK[2268085]
+        ls_mdkp  TYPE marc,                   "#EC CI_USAGE_OK[2268085]
+        lt_mdpsx TYPE TABLE OF mdps,
+        ls_mdpsx TYPE mdps.
+*  - Added pseudo comment to suppress non-critical ATC warning
+  DATA: lt_t458a TYPE TABLE OF t458a,
+        ls_t458a TYPE t458a,
+        lt_t458b TYPE TABLE OF t458b,
+        ls_t458b TYPE t458b.
+  DATA: lt_lfa1 TYPE TABLE OF lfa1,
+        ls_lfa1 TYPE lfa1.
+
+  DATA: lt_ekes TYPE TABLE OF ekes,
+        ls_ekes TYPE ekes.
+
+  DATA: lv_maktx  TYPE makt-maktx.
+  DATA: tb_t024d TYPE TABLE OF t024d,
+        wa_t024d LIKE LINE OF tb_t024d.
+
+*Begin of comment by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+***NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+*  SELECT matnr plwrk dispo             "#EC CI_DB_OPERATION_OK[2268085]
+*    INTO CORRESPONDING FIELDS OF TABLE lt_mdkp
+*    FROM mdkp
+*    WHERE mdkp~dispo IN s_dispin.             "#EC CI_USAGE_OK[2268085]
+*  - Added pseudo comment to suppress non-critical ATC warning
+*End of comment by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+
+*Begin of changes by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+*MRP Area table to be used instead after S4
+
+  SELECT marc~matnr marc~werks marc~dispo "#EC CI_DB_OPERATION_OK[2268085]
+   INTO CORRESPONDING FIELDS OF TABLE lt_mdkp
+   FROM marc
+   WHERE   marc~werks IN s_werkin
+     AND marc~dispo IN s_dispin.
+
+*End of changes by US5092 03/24/2026 9004233540 - Custom Query ZMD04 Issue
+
+  SORT lt_mdkp BY matnr werks.
+  DELETE ADJACENT DUPLICATES FROM lt_mdkp
+  COMPARING matnr werks.
+
+  SELECT * FROM t458a
+    INTO CORRESPONDING FIELDS OF TABLE lt_t458a.
+  SORT lt_t458a BY aussl.
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+  SELECT * FROM t458b
+    INTO CORRESPONDING FIELDS OF TABLE lt_t458b
+    WHERE spras = sy-langu
+    ORDER BY PRIMARY KEY.
+*    - Added ORDER BY PRIMARY KEY for correct ordering & performance
+  SORT lt_t458a BY aussl.
+
+
+  SELECT dispo dsnam FROM t024d
+  INTO CORRESPONDING FIELDS OF TABLE tb_t024d.
+
+
+
+  LOOP AT lt_mdkp INTO ls_mdkp.
+
+    REFRESH lt_mdpsx.
+**NTT ATC CCR CHANGES - [Date: 2025-10-13] - [Developer/10138580]
+    CALL FUNCTION 'MD_STOCK_REQUIREMENTS_LIST_API'
+    "#EC CI_USAGE_OK[2268085]
+    "#EC CI_USAGE_OK[3211383]
+    "#EC CI_USAGE_OK[2227532]
+    "#EC CI_USAGE_OK[2227579]
+*  - Added pseudo comment to suppress non-critical ATC warning
+      EXPORTING
+        matnr                    = ls_mdkp-matnr
+        werks                    = ls_mdkp-werks
+      TABLES
+        mdpsx                    = lt_mdpsx
+      EXCEPTIONS
+        material_plant_not_found = 1
+        plant_not_found          = 2
+        OTHERS                   = 3.
+    IF sy-subrc <> 0.
+    ENDIF.
+
+
+
+    CLEAR lv_maktx.
+    SELECT SINGLE maktx INTO lv_maktx
+      FROM makt
+      WHERE matnr = ls_mdkp-matnr
+        AND spras = sy-langu.
+
+    LOOP AT lt_mdpsx INTO ls_mdpsx WHERE delkz = 'FE'.
+      CLEAR gs_out.
+
+      CHECK ls_mdpsx-mng01 > 0.
+      CHECK ls_mdpsx-plumi = '+'.
+
+      CLEAR ls_t458a.
+      READ TABLE lt_t458a INTO ls_t458a
+        WITH KEY aussl = ls_mdpsx-aussl
+        BINARY SEARCH.
+
+      CHECK ls_t458a-selgp IN s_selpin[].
+      CHECK ls_t458a-auskt IN s_austin[].
+
+      SELECT psmng wemng UP TO 1 ROWS FROM afpo INTO (gs_out-psmng, gs_out-wemng) WHERE aufnr = ls_mdpsx-del12 ORDER BY PRIMARY KEY.
+      ENDSELECT. " Added by NDBS during Code Remediation
+      gs_out-aufnr = ls_mdpsx-del12.
+      gs_out-remqty = gs_out-psmng - gs_out-wemng.
+      gs_out-matnr = ls_mdkp-matnr.
+      gs_out-werks = ls_mdkp-werks.
+      gs_out-maktx = lv_maktx.
+
+      READ TABLE tb_t024d INTO wa_t024d WITH KEY dispo = ls_mdkp-dispo.
+      IF sy-subrc = 0.
+        gs_out-dsnam = wa_t024d-dsnam.
+      ENDIF.
+
+
+      gs_out-dat01 = ls_mdpsx-dat01.
+      gs_out-dat00 = ls_mdpsx-dat00.
+      gs_out-delnr = ls_mdpsx-delnr.
+      gs_out-delps = ls_mdpsx-delps.
+      gs_out-umdat = ls_mdpsx-umdat.
+      gs_out-auskt = ls_t458a-auskt.
+
+      CLEAR ls_t458b.
+      READ TABLE lt_t458b INTO ls_t458b "#EC CI_SORTED " Added by NDBS during Code Remediation
+        WITH KEY aussl = ls_mdpsx-aussl
+        BINARY SEARCH.
+      gs_out-auslt = ls_t458b-auslt.
+
+      APPEND gs_out TO gt_out.
+    ENDLOOP.
+
+
+
+  ENDLOOP.
+ENDFORM.                    " GET_DATA_INHOUSE
