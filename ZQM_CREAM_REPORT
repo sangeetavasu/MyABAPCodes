@@ -1,0 +1,390 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZQM_FERMENTATION_REPORT_GETF01.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  GET_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM get_data .
+
+  DATA : operation              LIKE  bapi2045l2,
+         insppoint_requirements LIKE  bapi2045d5,
+         wa_ret                 TYPE bapiret2,
+         tb_insppoints          TYPE TABLE OF bapi2045l4,
+         tb_char_req            TYPE TABLE OF bapi2045d1,
+         tb_char_results        TYPE TABLE OF bapi2045d2,
+         tb_sample_results      TYPE TABLE OF bapi2045d3,
+         tb_single_results      TYPE TABLE OF bapi2045d4.
+
+
+
+  SELECT qals~prueflos, qals~werk, art, qals~objnr, enstehdat, selmatnr, qals~aufnr, charg , pastrterm, maktx, ebeln, mblnr, mjahr,zeile, lichn, kunnr FROM qals
+     INNER JOIN makt ON makt~matnr = qals~selmatnr
+   WHERE werk = @p_werks
+      AND art = @p_art
+    AND pastrterm IN @so_gstrp
+    AND kunnr IN @so_kunnr
+    AND selmatnr = '000000000000010030'
+    AND makt~spras = 'E'
+    INTO TABLE @DATA(tb_qals).
+
+*Get the information from ZPP_TP_LOG table
+
+  DATA(tb_qals_temp) = tb_qals[].
+  DELETE tb_qals_temp WHERE mblnr = '  '.
+  IF NOT tb_qals_temp IS INITIAL.
+    SELECT mseg~mblnr, mseg~mjahr, zeile, vbeln_im  FROM mseg
+     FOR ALL ENTRIES IN @tb_qals_temp
+    WHERE mseg~mblnr = @tb_qals_temp-mblnr
+    AND mseg~mjahr = @tb_qals_temp-mjahr
+    AND mseg~zeile = @tb_qals_temp-zeile
+    INTO TABLE @DATA(tb_mseg).
+    DELETE tb_mseg WHERE vbeln_im IS INITIAL.
+
+    IF NOT tb_mseg IS INITIAL.
+
+      SELECT deliveryid, delivery FROM zpp_tp_log
+        FOR ALL ENTRIES IN @tb_mseg
+        WHERE delivery = @tb_mseg-vbeln_im
+         INTO TABLE @DATA(tb_delivery_id).
+
+      IF NOT tb_delivery_id IS INITIAL.
+        SELECT amount,material,deliveryid,vendor,ponumber,ticketno,ticketweight,scaleweight, scaleid, butterfat,
+          snf, haulier, trailerid, mblnr FROM zpp_tp_log
+          FOR ALL ENTRIES IN @tb_delivery_id
+          WHERE deliveryid = @tb_delivery_id-deliveryid
+          AND scena = '03'
+          INTO TABLE @DATA(tb_zpp_tp_log).
+      ENDIF.
+    ENDIF.
+  ENDIF.
+*Obtain the Results for each of the Inspection Lot found and consolidate the data into the FERM
+*report format for final dislay.
+*Ferm Results Activity type is 0060.
+  DATA: wa_zzqmcreamalv TYPE zzqmcreamalv.
+
+  LOOP AT tb_qals INTO DATA(wa_qals).
+    CLEAR wa_zzqmcreamalv.
+    wa_zzqmcreamalv-gstrp = wa_qals-enstehdat.
+    wa_zzqmcreamalv-aufnr = wa_qals-aufnr.
+    wa_zzqmcreamalv-prueflos = wa_qals-prueflos.
+    wa_zzqmcreamalv-lichn = wa_qals-charg.
+    CLEAR: tb_insppoints[], tb_char_req[], tb_sample_results[],tb_char_results[],tb_single_results[].
+    CALL FUNCTION 'BAPI_INSPOPER_GETDETAIL'
+      EXPORTING
+        insplot                = wa_qals-prueflos
+        inspoper               = '0010'
+        read_insppoints        = 'X'
+        read_char_requirements = 'X'
+        read_char_results      = 'X'
+        read_sample_results    = 'X'
+        read_single_results    = 'X'
+        char_filter_no         = '1   '
+        char_filter_tcode      = 'QE11'
+        max_insppoints         = 100
+      IMPORTING
+        operation              = operation
+        insppoint_requirements = insppoint_requirements
+        return                 = wa_ret
+      TABLES
+        insppoints             = tb_insppoints
+        char_requirements      = tb_char_req
+        char_results           = tb_char_results
+        sample_results         = tb_sample_results
+        single_results         = tb_single_results.
+
+    wa_zzqmcreamalv-maktx = wa_qals-maktx.
+    DATA(wa_mseg) = VALUE #( tb_mseg[ mblnr = wa_qals-mblnr mjahr = wa_qals-mjahr zeile = wa_qals-zeile ] OPTIONAL ).
+    DATA(wa_deliveryid) = VALUE #( tb_delivery_id[ delivery = wa_mseg-vbeln_im ] OPTIONAL ).
+    DATA(wa_zpp_tp_log) =  VALUE #( tb_zpp_tp_log[ deliveryid = wa_deliveryid-deliveryid  ] OPTIONAL ).
+    wa_zzqmcreamalv-truck# = wa_zpp_tp_log-trailerid.
+    wa_zzqmcreamalv-purchaser = wa_zpp_tp_log-vendor.
+    wa_zzqmcreamalv-ticket# =  wa_zpp_tp_log-ticketno .
+    wa_zzqmcreamalv-ponumber = wa_zpp_tp_log-ponumber.
+
+
+    DATA(wa_tank) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'CRMTANK' ]-inspchar OPTIONAL ).
+
+    DATA(wa_snf) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'SNF' ]-inspchar OPTIONAL ).
+
+    DATA(wa_fat) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'BF' ]-inspchar OPTIONAL ).
+    DATA(wa_ph) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'PH' ]-inspchar OPTIONAL ).
+    DATA(wa_ts) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'TS' ]-inspchar OPTIONAL ).
+    DATA(wa_protein) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'PROTEIN' ]-inspchar OPTIONAL ).
+    DATA(wa_coliform) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'COLIFORM' ]-inspchar OPTIONAL ).
+    DATA(wa_apc) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'APC' ]-inspchar OPTIONAL ).
+    DATA(wa_dmc) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'DMC' ]-inspchar OPTIONAL ).
+    DATA(wa_ta) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'TA' ]-inspchar OPTIONAL ).
+    DATA(wa_msnf) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'MSNF' ]-inspchar OPTIONAL ).
+    DATA(wa_comments) = VALUE qibpmerknr( tb_char_req[ mstr_char = 'COMMENTS' ]-inspchar OPTIONAL ).
+
+
+    LOOP AT tb_char_results INTO DATA(wa_char_results) WHERE insplot = wa_qals-prueflos.
+
+      CONDENSE wa_char_results-mean_value.
+      CASE wa_char_results-inspchar.
+        WHEN wa_tank.
+          wa_zzqmcreamalv-tank = wa_char_results-code1.
+          wa_zzqmcreamalv-insptank = wa_char_results-inspector.
+        WHEN wa_snf.
+          wa_zzqmcreamalv-snf = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspsnf = wa_char_results-inspector.
+        WHEN wa_fat.
+          wa_zzqmcreamalv-butterfat = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspbf = wa_char_results-inspector.
+        WHEN wa_ph.
+          wa_zzqmcreamalv-ph = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspph = wa_char_results-inspector.
+        WHEN wa_ts.
+          wa_zzqmcreamalv-totalsolid = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspts = wa_char_results-inspector.
+        WHEN wa_dmc.
+          wa_zzqmcreamalv-dmc = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspdmc = wa_char_results-inspector.
+        WHEN wa_ta.
+          wa_zzqmcreamalv-acidity = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspacid = wa_char_results-inspector.
+        WHEN wa_protein.
+          wa_zzqmcreamalv-protein = wa_char_results-mean_value.
+          wa_zzqmcreamalv-insppro  = wa_char_results-inspector.
+        WHEN wa_msnf.
+          wa_zzqmcreamalv-milksolidanf = wa_char_results-mean_value.
+          wa_zzqmcreamalv-inspmilks = wa_char_results-inspector.
+        WHEN wa_comments.
+          wa_zzqmcreamalv-comments = wa_char_results-remark.
+      ENDCASE.
+    ENDLOOP.
+    APPEND  wa_zzqmcreamalv TO tb_zzqmcreamalv.
+    CLEAR :wa_zzqmcreamalv, wa_zpp_tp_log, wa_comments,wa_msnf, wa_protein, wa_ta,wa_dmc,wa_ts,
+    wa_ph,wa_fat,wa_snf, wa_tank.
+
+
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  DISPLAY_OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM display_output .
+  CLEAR : gr_table.
+  TRY.
+      CALL METHOD cl_salv_table=>factory
+        EXPORTING
+          list_display = if_salv_c_bool_sap=>false
+        IMPORTING
+          r_salv_table = gr_table
+        CHANGING
+          t_table      = tb_zzqmcreamalv.
+    CATCH cx_salv_msg .
+  ENDTRY.
+  IF gr_table IS INITIAL.
+    MESSAGE 'Error Creating ALV Grid ' TYPE 'I' DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+** Get functions details
+  gr_functions = gr_table->get_functions( ).
+
+** Activate All Buttons in Tool Bar
+  gr_functions->set_all( if_salv_c_bool_sap=>true ).
+  gr_functions->set_print( if_salv_c_bool_sap=>true ).
+
+******* Layout Settings  *******
+  CLEAR : gr_layout, gr_layout_key.
+  MOVE sy-repid TO gr_layout_key-report.                        "Set Report ID as Layout Key"
+
+  gr_layout = gr_table->get_layout( ).                          "Get Layout of Table"
+  gr_layout->set_key( gr_layout_key ).                          "Set Report Id to Layout"
+  gr_layout->set_save_restriction( if_salv_c_layout=>restrict_none ). "No Restriction to Save Layout"
+
+
+******* Global Display Settings  *******
+  CLEAR : gr_display.
+  MOVE 'Cream Truck Report' TO lv_title.
+  gr_display = gr_table->get_display_settings( ).               " Global Display settings"
+  gr_display->set_striped_pattern( if_salv_c_bool_sap=>true ).  "Activate Strip Pattern"
+  gr_display->set_list_header( lv_title ).                      "Report Header"
+
+******* Aggregate Function Settings *******
+  gr_aggr = gr_table->get_aggregations( ).                      "Get Aggregate Functions"
+
+
+** Get the columns from ALV Table
+  gr_columns = gr_table->get_columns( ).
+  IF gr_columns IS NOT INITIAL.
+    REFRESH : lt_column_ref.
+    CLEAR   : ls_column_ref.
+    lt_column_ref = gr_columns->get( ).
+
+** Get columns properties
+    gr_columns->set_optimize( if_salv_c_bool_sap=>true ).
+    gr_columns->set_key_fixation( if_salv_c_bool_sap=>true ).
+    TRY.
+        gr_columns->set_color_column( 'T_COLOR' ).
+      CATCH cx_salv_data_error .
+    ENDTRY.
+    TRY.
+        column = gr_columns->get_column( 'TRUCK#' ).
+        column->set_short_text( 'Truck' ).
+        column->set_medium_text( 'Truck' ).
+        column->set_long_text( 'Truck'  ).
+        column->set_output_length( '15' ).
+      CATCH  cx_salv_not_found.
+    ENDTRY.
+
+       TRY.
+        column = gr_columns->get_column( 'IDENT' ).
+        column->set_short_text( 'Ident' ).
+        column->set_medium_text('Identification' ).
+        column->set_long_text( 'Identification'  ).
+        column->set_output_length( '15' ).
+      CATCH  cx_salv_not_found .
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'LICHN' ).
+        column->set_short_text( 'VenBatch' ).
+        column->set_medium_text( 'Vendor Batch'  ).
+        column->set_long_text(  'Vendor Batch'   ).
+        column->set_output_length( '15' ).
+      CATCH  cx_salv_not_found .
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'PURCHASER' ).
+        column->set_short_text( 'Purchaser' ).
+        column->set_medium_text( 'Purchaser'  ).
+        column->set_long_text(   'Purchaser'  ).
+        column->set_output_length( '15' ).
+      CATCH  cx_salv_not_found .
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'TICKET#' ).
+        column->set_short_text( 'Ticket#' ).
+        column->set_medium_text( 'Ticket#' ).
+        column->set_long_text( 'Ticket#'  ).
+        column->set_output_length( '15' ).
+      CATCH  cx_salv_not_found .
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'PONUMBER' ).
+        column->set_short_text( 'PONumber' ).
+        column->set_medium_text(  'PONumber' ).
+        column->set_long_text(  'PONumber' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+    TRY.
+        column = gr_columns->get_column( 'TANK' ).
+        column->set_short_text( 'Tank' ).
+        column->set_medium_text( 'Tank' ).
+        column->set_long_text(  'Tank' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+    TRY.
+        column = gr_columns->get_column( 'SNF' ).
+        column->set_short_text( 'SNF' ).
+        column->set_medium_text(  'SNF' ).
+        column->set_long_text(  'SNF' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+
+    TRY.
+        column = gr_columns->get_column( 'BUTTERFAT' ).
+        column->set_short_text( 'Fat%' ).
+        column->set_medium_text( 'Fat%'  ).
+        column->set_long_text( 'Fat%'  ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+
+    TRY.
+        column = gr_columns->get_column( 'PH' ).
+        column->set_short_text( 'PH' ).
+        column->set_medium_text( 'PH'  ).
+        column->set_long_text( 'PH'  ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'TOTALSOLID' ).
+        column->set_short_text( 'TotalSolid' ).
+        column->set_medium_text( 'Total Solid' ).
+        column->set_long_text( 'Total Solid').
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'DMC' ).
+        column->set_short_text( 'DMC' ).
+        column->set_medium_text( 'DMC' ).
+        column->set_long_text( 'DMC' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'ACIDITY' ).
+        column->set_short_text( 'Acidity' ).
+        column->set_medium_text( 'Acidity' ).
+        column->set_long_text( 'Acidity' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'PROTEIN' ).
+        column->set_short_text( 'Protein' ).
+        column->set_medium_text( 'Protein'  ).
+        column->set_long_text( 'Protein'  ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'MILKSOLIDANF' ).
+        column->set_short_text( 'MilkSolNF' ).
+        column->set_medium_text( 'MilkSolidNFat' ).
+        column->set_long_text( 'MilkSolidNonFat' ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+    TRY.
+        column = gr_columns->get_column( 'COMMENTS' ).
+        column->set_short_text( 'Comments' ).
+        column->set_medium_text( 'Comments'  ).
+        column->set_long_text( 'Comments'  ).
+        column->set_output_length( '15' ).
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+  ENDIF.
+  CALL METHOD gr_table->display.
+
+
+
+ENDFORM.
