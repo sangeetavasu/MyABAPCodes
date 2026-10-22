@@ -1,0 +1,20 @@
+  METHOD remove_address_link.
+*Now map this address to the functional location of the Equipment.
+    DATA equipment_attributes TYPE itob.
+
+    CALL FUNCTION 'ITOB_EQUIPMENT_READ_SINGLE'
+      EXPORTING
+        i_objnr      = equipment_number
+      IMPORTING
+        e_object_rec = equipment_attributes.
+
+    equipment_attributes-adrnr =  '  '.
+
+    CALL FUNCTION 'ITOB_EQUIPMENT_MODIFY_SINGLE'
+      EXPORTING
+        i_filter_data  = abap_off
+        i_write_buffer = abap_true
+        i_post_buffer  = abap_true
+        i_object_rec   = equipment_attributes.
+    COMMIT WORK.
+  ENDMETHOD.
