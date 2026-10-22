@@ -1,0 +1,25 @@
+FUNCTION zz_equip_remove_location.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(EQUIPMENT_LIST) TYPE  ZTYUPDEQUIPLOC
+*"----------------------------------------------------------------------
+  DATA: wa_equip_list     TYPE zupdequiploc,
+        generated_address TYPE adrnr,
+        link_made         TYPE flag.
+  DATA: lt_seltab TYPE TABLE OF rsparams,
+        ls_seltab LIKE LINE OF lt_seltab.
+
+
+  WAIT UP TO 5 SECONDS.
+  LOOP AT equipment_list INTO wa_equip_list.
+
+    zcl_equipment_location_address=>remove_address_link( EXPORTING equipment_number = wa_equip_list-Equnr
+                                                        ).
+
+  ENDLOOP.
+
+
+
+
+ENDFUNCTION.
