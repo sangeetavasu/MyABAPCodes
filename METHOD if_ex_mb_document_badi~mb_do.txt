@@ -1,0 +1,27 @@
+METHOD if_ex_mb_document_badi~mb_document_update.
+    DATA: tb_equip_upd TYPE TABLE OF zupdequiploc,
+          wa_equip     TYPE zupdequiploc.
+*Trigger the Function module to remove functional location on equipment only for VL09(Reverse Goods Issue).
+    BREAK itellsupport.
+*get the Equipment number from delivery and line item and then trigger the Update Location process.
+    SELECT FROM ser01 INNER JOIN objk ON objk~obknr = ser01~obknr
+       FIELDS ser01~obknr, equnr, lief_nr, posnr FOR ALL ENTRIES IN @xmseg
+       WHERE  lief_nr = @xmseg-VBELN_IM
+      AND     posnr = @xmseg-VBELP_IM
+      INTO TABLE @DATA(tb_equipment_list).
+    LOOP AT xmseg INTO DATA(wa_mseg) WHERE tcode2_mkpf = 'VL09'.
+      IF wa_mseg-bwart = '602'.
+        LOOP AT tb_equipment_list INTO DATA(wa_list) WHERE lief_nr = wa_mseg-VBELN_IM
+                                                             AND      posnr = wa_mseg-VBELP_IM.
+              wa_equip-vbeln = wa_list-lief_nr.
+            wa_equip-posnr = wa_list-posnr.
+            wa_equip-equnr = wa_list-equnr.
+          APPEND wa_equip TO tb_equip_upd.
+        ENDLOOP.
+      ENDIF.
+    ENDLOOP.
+    IF NOT tb_equip_upd[] IS INITIAL.
+      CALL FUNCTION 'ZZ_EQUIP_REMOVE_LOCATION' IN BACKGROUND TASK AS SEPARATE UNIT
+        EXPORTING
+          equipment_list = tb_equip_upd[].
+    ENDIF.
