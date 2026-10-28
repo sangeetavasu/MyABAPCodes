@@ -1,0 +1,1101 @@
+REPORT zread_pipe_invoice_file.
+
+*---------------------------------------------------------------------*
+* File selection
+*---------------------------------------------------------------------*
+*PARAMETERS:
+*p_file TYPE rlgrap-filename, "OBLIGATORY,
+*           p_dir TYPE salfile-longname. "OBLIGATORY. "directory
+
+PARAMETERS:
+  p_rad1 TYPE c RADIOBUTTON GROUP grp1 DEFAULT 'X' USER-COMMAND ucomm,
+  p_rad2 TYPE c RADIOBUTTON GROUP grp1.
+
+PARAMETERS:
+  p_file TYPE rlgrap-filename MODIF ID m1,
+  p_dir TYPE salfile-longname MODIF ID m2.
+
+
+*---------------------------------------------------------------------*
+* Common types
+*---------------------------------------------------------------------*
+TYPES:
+  tt_string TYPE STANDARD TABLE OF string.
+
+*---------------------------------------------------------------------*
+* Record type 01: Invoice header
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_01,
+    record_type          TYPE string,
+    invoice_id           TYPE string,
+    supplier_number      TYPE string,
+    invoice_number       TYPE string,
+    invoice_date         TYPE string,
+    invoice_type         TYPE string,
+    field_07             TYPE string,
+    currency             TYPE string,
+    invoice_amount       TYPE string,
+    tax_amount           TYPE string,
+    field_11             TYPE string,
+    field_12             TYPE string,
+    field_13             TYPE string,
+    field_14             TYPE string,
+    field_15             TYPE string,
+    invoice_source       TYPE string,
+    import_date          TYPE string,
+    source_filename      TYPE string,
+    processing_date      TYPE string,
+    field_20             TYPE string,
+    status               TYPE string,
+    field_22             TYPE string,
+    field_23             TYPE string,
+    field_24             TYPE string,
+    net_amount           TYPE string,
+    payment_term_id      TYPE string,
+    field_27             TYPE string,
+    field_28             TYPE string,
+    payment_method       TYPE string,
+    field_30             TYPE string,
+    field_31             TYPE string,
+  END OF ty_record_01,
+
+  tt_record_01 TYPE STANDARD TABLE OF ty_record_01.
+
+
+*---------------------------------------------------------------------*
+* Record type 02: Invoice attributes
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_02,
+    record_type     TYPE string,
+    invoice_id      TYPE string,
+    attribute_id    TYPE string,
+    attribute_value TYPE string,
+  END OF ty_record_02,
+
+  tt_record_02 TYPE STANDARD TABLE OF ty_record_02.
+
+
+*---------------------------------------------------------------------*
+* Record type 05: Payment terms
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_05,
+    record_type       TYPE string,
+    invoice_id        TYPE string,
+    payment_term_id   TYPE string,
+    payment_term_code TYPE string,
+    field_05          TYPE string,
+    description       TYPE string,
+    calculation_type  TYPE string,
+    number_of_days    TYPE string,
+    due_date          TYPE string,
+    field_10          TYPE string,
+    discount_days     TYPE string,
+    discount_percent  TYPE string,
+    field_13          TYPE string,
+  END OF ty_record_05,
+
+  tt_record_05 TYPE STANDARD TABLE OF ty_record_05.
+
+
+*---------------------------------------------------------------------*
+* Record type 06: Address
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_06,
+    record_type TYPE string,
+    invoice_id  TYPE string,
+    address_type TYPE string,
+    name         TYPE string,
+    name_2       TYPE string,
+    address_1    TYPE string,
+    address_2    TYPE string,
+    city         TYPE string,
+    state        TYPE string,
+    postal_code  TYPE string,
+    country      TYPE string,
+  END OF ty_record_06,
+
+  tt_record_06 TYPE STANDARD TABLE OF ty_record_06.
+
+
+*---------------------------------------------------------------------*
+* Record type 11: Supplier
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_11,
+    record_type    TYPE string,
+    invoice_id     TYPE string,
+    supplier_id    TYPE string,
+    supplier_number TYPE string,
+    supplier_name  TYPE string,
+    address_1      TYPE string,
+    address_2      TYPE string,
+    city           TYPE string,
+    state          TYPE string,
+    postal_code    TYPE string,
+    country        TYPE string,
+  END OF ty_record_11,
+
+  tt_record_11 TYPE STANDARD TABLE OF ty_record_11.
+
+
+*---------------------------------------------------------------------*
+* Record type 12: Supplier/payment term assignment
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_12,
+    record_type     TYPE string,
+    invoice_id      TYPE string,
+    supplier_id     TYPE string,
+    payment_term_id TYPE string,
+  END OF ty_record_12,
+
+  tt_record_12 TYPE STANDARD TABLE OF ty_record_12.
+
+
+*---------------------------------------------------------------------*
+* Record type 13: Supplier reference
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_13,
+    record_type     TYPE string,
+    invoice_id      TYPE string,
+    supplier_id     TYPE string,
+    payment_term_id TYPE string,
+    reference_value TYPE string,
+  END OF ty_record_13,
+
+  tt_record_13 TYPE STANDARD TABLE OF ty_record_13.
+
+
+*---------------------------------------------------------------------*
+* Record type 15: Customer or company address
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_15,
+    record_type   TYPE string,
+    invoice_id    TYPE string,
+    customer_id   TYPE string,
+    field_04      TYPE string,
+    customer_name TYPE string,
+    address_1     TYPE string,
+    address_2     TYPE string,
+    city          TYPE string,
+    state         TYPE string,
+    postal_code   TYPE string,
+    country       TYPE string,
+  END OF ty_record_15,
+
+  tt_record_15 TYPE STANDARD TABLE OF ty_record_15.
+
+
+*---------------------------------------------------------------------*
+* Record type 21: Invoice item
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_21,
+    record_type      TYPE string,
+    invoice_id       TYPE string,
+    item_number      TYPE string,
+    field_04         TYPE string,
+    field_05         TYPE string,
+    quantity         TYPE string,
+    unit_of_measure  TYPE string,
+    material_number  TYPE string,
+    description      TYPE string,
+    unit_price       TYPE string,
+    line_amount      TYPE string,
+    tax_amount       TYPE string,
+    additional_amount TYPE string,
+  END OF ty_record_21,
+
+  tt_record_21 TYPE STANDARD TABLE OF ty_record_21.
+
+
+*---------------------------------------------------------------------*
+* Record type 22: Item attributes
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_22,
+    record_type     TYPE string,
+    invoice_id      TYPE string,
+    item_number     TYPE string,
+    attribute_id    TYPE string,
+    attribute_value TYPE string,
+  END OF ty_record_22,
+
+  tt_record_22 TYPE STANDARD TABLE OF ty_record_22.
+
+
+*---------------------------------------------------------------------*
+* Record type 41: Accounting summary
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_41,
+    record_type TYPE string,
+    invoice_id  TYPE string,
+    sequence_no TYPE string,
+    line_number TYPE string,
+    percentage  TYPE string,
+    amount      TYPE string,
+  END OF ty_record_41,
+
+  tt_record_41 TYPE STANDARD TABLE OF ty_record_41.
+
+
+*---------------------------------------------------------------------*
+* Record type 42: Accounting distribution segments
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_record_42,
+    record_type   TYPE string,
+    invoice_id    TYPE string,
+    sequence_no   TYPE string,
+    line_number   TYPE string,
+    segment_no    TYPE string,
+    segment_value TYPE string,
+  END OF ty_record_42,
+
+  tt_record_42 TYPE STANDARD TABLE OF ty_record_42.
+
+
+*---------------------------------------------------------------------*
+* Parsing error log
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_error,
+    line_number TYPE i,
+    record_type TYPE string,
+    message     TYPE string,
+    raw_line    TYPE string,
+  END OF ty_error,
+
+  tt_error TYPE STANDARD TABLE OF ty_error.
+
+*---------------------------------------------------------------------*
+* Created IDoc log
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_created_idoc,
+    docnum      TYPE edidc-docnum,
+    mescod      TYPE edidc-mescod,
+    file        TYPE string,
+    fileno      TYPE i,
+  END OF ty_created_idoc,
+
+  tt_created_idoc TYPE STANDARD TABLE OF ty_created_idoc.
+
+*---------------------------------------------------------------------*
+* Data declarations
+*---------------------------------------------------------------------*
+DATA:
+  gt_file_lines TYPE tt_string,
+  gt_record_01  TYPE tt_record_01,
+  gt_record_02  TYPE tt_record_02,
+  gt_record_05  TYPE tt_record_05,
+  gt_record_06  TYPE tt_record_06,
+  gt_record_11  TYPE tt_record_11,
+  gt_record_12  TYPE tt_record_12,
+  gt_record_13  TYPE tt_record_13,
+  gt_record_15  TYPE tt_record_15,
+  gt_record_21  TYPE tt_record_21,
+  gt_record_22  TYPE tt_record_22,
+  gt_record_41  TYPE tt_record_41,
+  gt_record_42  TYPE tt_record_42,
+  gt_errors     TYPE tt_error,
+  gt_created_idocs  TYPE  tt_created_idoc,
+  gv_fileno     TYPE i.
+
+*multiple files
+DATA: gv_dirname   TYPE epsf-epsdirnam,
+      gv_dir_retrn TYPE epsf-epsdirnam,
+      gv_nbr_files TYPE epsf-epsfilsiz,
+      gv_nbr_errs  TYPE epsf-epsfilsiz.
+
+DATA: BEGIN OF gt_filedir OCCURS 10.
+*        INCLUDE STRUCTURE salfldir.
+        INCLUDE STRUCTURE epsfili.
+DATA: END OF gt_filedir.
+DATA: gs_filedir TYPE epsfili.
+
+
+*---------------------------------------------------------------------*
+* Generic parsing class
+*---------------------------------------------------------------------*
+CLASS lcl_file_parser DEFINITION FINAL.
+
+  PUBLIC SECTION.
+
+    CLASS-METHODS:
+      split_line
+        IMPORTING
+          iv_line        TYPE string
+        EXPORTING
+          ev_record_type TYPE string
+          et_fields      TYPE tt_string,
+
+      move_to_structure
+        IMPORTING
+          it_fields TYPE tt_string
+        CHANGING
+          cs_record TYPE any.
+
+ENDCLASS.                    "lcl_file_parser DEFINITION
+
+*----------------------------------------------------------------------*
+*       CLASS lcl_file_parser IMPLEMENTATION
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+CLASS lcl_file_parser IMPLEMENTATION.
+
+  METHOD split_line.
+
+    CLEAR:
+      ev_record_type,
+      et_fields.
+
+    SPLIT iv_line AT '|' INTO TABLE et_fields.
+
+    READ TABLE et_fields
+      INDEX 1
+      INTO ev_record_type.
+
+  ENDMETHOD.                    "split_line
+
+  METHOD move_to_structure.
+    DATA: lv_value LIKE LINE OF it_fields.
+    FIELD-SYMBOLS:
+      <lv_component> TYPE ANY.
+
+    CLEAR cs_record.
+
+    LOOP AT it_fields INTO lv_value.
+
+      ASSIGN COMPONENT sy-tabix
+        OF STRUCTURE cs_record
+        TO <lv_component>.
+
+      IF sy-subrc <> 0.
+        EXIT.
+      ENDIF.
+
+      <lv_component> = lv_value.
+
+    ENDLOOP.
+
+  ENDMETHOD.                    "move_to_structure
+
+ENDCLASS.                    "lcl_file_parser IMPLEMENTATION
+
+*---------------------------------------------------------------------*
+* File selection help
+*---------------------------------------------------------------------*
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+
+  DATA:
+    lt_file_table TYPE filetable,
+    ls_selected_file LIKE LINE OF lt_file_table,
+    lv_rc         TYPE i.
+
+  cl_gui_frontend_services=>file_open_dialog(
+    EXPORTING
+      window_title      = 'Select pipe-delimited invoice file'
+      default_extension = 'txt'
+      file_filter       = 'Text files (*.txt)|*.txt|All files (*.*)|*.*|'
+    CHANGING
+      file_table        = lt_file_table
+      rc                = lv_rc
+    EXCEPTIONS
+      OTHERS            = 1 ).
+
+  IF sy-subrc = 0 AND lv_rc > 0.
+
+    READ TABLE lt_file_table INDEX 1 INTO  ls_selected_file .
+    IF sy-subrc = 0.
+      p_file = ls_selected_file-filename.
+    ENDIF.
+  ENDIF.
+
+*RADIO BUTTON TOGGLE
+
+AT SELECTION-SCREEN OUTPUT.
+  LOOP AT SCREEN.
+    IF p_rad1 = 'X'.
+      IF screen-group1 = 'M2'.
+        screen-input = 0. " Disable second field
+      ELSE.
+        screen-input = 1. " Enable first field
+      ENDIF.
+    ELSEIF p_rad2 = 'X'.
+      IF screen-group1 = 'M1'.
+        screen-input = 0. " Disable first field
+      ELSE.
+        screen-input = 1. " Enable second field
+      ENDIF.
+    ENDIF.
+    MODIFY SCREEN.
+  ENDLOOP.
+
+*---------------------------------------------------------------------*
+* Main processing
+*---------------------------------------------------------------------*
+START-OF-SELECTION.
+
+  IF p_rad1 IS NOT INITIAL.
+
+    PERFORM upload_file.
+    PERFORM parse_file.
+    PERFORM create_idocs.
+    PERFORM display_summary.
+
+  ELSEIF p_rad2 IS NOT INITIAL.
+    PERFORM read_directory.
+    IF gt_filedir IS NOT INITIAL.
+      LOOP AT gt_filedir INTO gs_filedir.
+        PERFORM upload_file.
+        PERFORM parse_file.
+        PERFORM create_idocs.
+      ENDLOOP.
+      PERFORM display_summary.
+    ENDIF.
+  ENDIF.
+
+*---------------------------------------------------------------------*
+* Upload frontend file
+*---------------------------------------------------------------------*
+FORM upload_file.
+
+  DATA: lv_filename TYPE string,
+        ls_created_file  TYPE ty_created_idoc.
+  CLEAR: ls_created_file.
+
+  IF p_rad1 IS NOT INITIAL.
+    lv_filename = p_file.
+  ELSEIF p_rad2 IS NOT INITIAL.
+    CONCATENATE p_dir gt_filedir-name INTO lv_filename.
+  ENDIF.
+
+  cl_gui_frontend_services=>gui_upload(
+    EXPORTING
+      filename                = lv_filename
+      filetype                = 'ASC'
+      has_field_separator     = abap_false
+    CHANGING
+      data_tab                = gt_file_lines
+    EXCEPTIONS
+      file_open_error         = 1
+      file_read_error         = 2
+      no_batch                = 3
+      gui_refuse_filetransfer = 4
+      invalid_type            = 5
+      no_authority            = 6
+      unknown_error           = 7
+      bad_data_format         = 8
+      header_not_allowed      = 9
+      separator_not_allowed   = 10
+      header_too_long         = 11
+      unknown_dp_error        = 12
+      access_denied           = 13
+      dp_out_of_memory        = 14
+      disk_full               = 15
+      dp_timeout              = 16
+      not_supported_by_gui    = 17
+      error_no_gui            = 18
+      OTHERS                  = 19 ).
+
+  IF sy-subrc <> 0.
+*    MESSAGE | unable to upload file. return code: { sy-subrc }|
+*      type 'E'.
+  ENDIF.
+
+  ls_created_file-mescod = 'FIL'.
+  ls_created_file-file = lv_filename.
+  gv_fileno = gv_fileno + 1.
+  ls_created_file-fileno = gv_fileno.
+  APPEND ls_created_file TO gt_created_idocs.
+
+ENDFORM.                    "upload_file
+
+*---------------------------------------------------------------------*
+* Parse file into record-specific internal tables
+*---------------------------------------------------------------------*
+FORM parse_file.
+
+  DATA:
+    lt_fields     TYPE tt_string,
+    lv_record_type TYPE string,
+    lv_line LIKE LINE OF gt_file_lines,
+    lv_line_number LIKE sy-tabix.
+
+  LOOP AT gt_file_lines INTO lv_line.
+
+    lv_line_number = sy-tabix.
+
+    IF lv_line IS INITIAL.
+      CONTINUE.
+    ENDIF.
+
+    lcl_file_parser=>split_line(
+      EXPORTING
+        iv_line        = lv_line
+      IMPORTING
+        ev_record_type = lv_record_type
+        et_fields      = lt_fields ).
+
+    CASE lv_record_type.
+
+      WHEN '01'.
+
+        DATA ls_record_01 TYPE ty_record_01.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_01 ).
+
+        APPEND ls_record_01 TO gt_record_01.
+
+      WHEN '02'.
+
+        DATA ls_record_02 TYPE ty_record_02.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_02 ).
+
+        APPEND ls_record_02 TO gt_record_02.
+
+      WHEN '05'.
+
+        DATA ls_record_05 TYPE ty_record_05.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_05 ).
+
+        APPEND ls_record_05 TO gt_record_05.
+
+      WHEN '06'.
+
+        DATA ls_record_06 TYPE ty_record_06.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_06 ).
+
+        APPEND ls_record_06 TO gt_record_06.
+
+      WHEN '11'.
+
+        DATA ls_record_11 TYPE ty_record_11.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_11 ).
+
+        APPEND ls_record_11 TO gt_record_11.
+
+      WHEN '12'.
+
+        DATA ls_record_12 TYPE ty_record_12.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_12 ).
+
+        APPEND ls_record_12 TO gt_record_12.
+
+      WHEN '13'.
+
+        DATA ls_record_13 TYPE ty_record_13.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_13 ).
+
+        APPEND ls_record_13 TO gt_record_13.
+
+      WHEN '15'.
+
+        DATA ls_record_15 TYPE ty_record_15.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_15 ).
+
+        APPEND ls_record_15 TO gt_record_15.
+
+      WHEN '21'.
+
+        DATA ls_record_21 TYPE ty_record_21.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_21 ).
+
+        APPEND ls_record_21 TO gt_record_21.
+
+      WHEN '22'.
+
+        DATA ls_record_22 TYPE ty_record_22.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_22 ).
+
+        APPEND ls_record_22 TO gt_record_22.
+
+      WHEN '41'.
+
+        DATA ls_record_41 TYPE ty_record_41.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_41 ).
+
+        APPEND ls_record_41 TO gt_record_41.
+
+      WHEN '42'.
+
+        DATA ls_record_42 TYPE ty_record_42.
+
+        lcl_file_parser=>move_to_structure(
+          EXPORTING
+            it_fields = lt_fields
+          CHANGING
+            cs_record = ls_record_42 ).
+
+        APPEND ls_record_42 TO gt_record_42.
+
+      WHEN OTHERS.
+
+*        APPEND value #(
+*          line_number = lv_line_number
+*          record_type = lv_record_type
+*          message     = 'Unknown record type'
+*          raw_line    = lv_line
+*        ) TO gt_errors.
+
+    ENDCASE.
+
+    CLEAR:
+      lt_fields,
+      lv_record_type.
+
+  ENDLOOP.
+
+ENDFORM.                    "parse_file
+
+*---------------------------------------------------------------------*
+* Display parsing summary
+*---------------------------------------------------------------------*
+FORM display_summary.
+  DATA: ls_created_idoc  TYPE ty_created_idoc,
+        ls_created_file  TYPE ty_created_idoc.
+
+  WRITE: / 'File Processing Completed'.
+
+  LOOP AT gt_created_idocs INTO ls_created_file WHERE mescod = 'FIL'.
+    WRITE: / 'File Name:'.
+    WRITE: / ls_created_file-file.
+    SKIP 1.
+    WRITE: / 'Non-PO Invoice IDocs:'.
+    LOOP AT gt_created_idocs INTO ls_created_idoc WHERE mescod = 'FI'
+      AND fileno = ls_created_file-fileno.
+      WRITE: / ls_created_idoc-docnum.
+    ENDLOOP.
+    SKIP 1.
+    WRITE: / 'PO Invoice IDocs:'.
+    LOOP AT gt_created_idocs INTO ls_created_idoc WHERE mescod = 'MM'
+      AND fileno = ls_created_file-fileno.
+      WRITE: / ls_created_idoc-docnum.
+    ENDLOOP.
+  ENDLOOP.
+*         '------------------------------------------',
+*         /  'record type 01: { lines( gt_record_01 ) }',
+*         / |record type 02: { lines( gt_record_02 ) }|,
+*         / |record type 05: { lines( gt_record_05 ) }|,
+*         / |record type 06: { lines( gt_record_06 ) }|,
+*         / |record type 11: { lines( gt_record_11 ) }|,
+*         / |record type 12: { lines( gt_record_12 ) }|,
+*         / |record type 13: { lines( gt_record_13 ) }|,
+*         / |record type 15: { lines( gt_record_15 ) }|,
+*         / |record type 21: { lines( gt_record_21 ) }|,
+*         / |record type 22: { lines( gt_record_22 ) }|,
+*         / |record type 41: { lines( gt_record_41 ) }|,
+*         / |record type 42: { lines( gt_record_42 ) }|,
+*         / |errors:         { lines( gt_errors ) }|.
+
+  IF gt_errors IS NOT INITIAL.
+
+    SKIP 2.
+    WRITE: / 'Errors',
+           / '------------------------------------------'.
+
+*    LOOP AT gt_errors INTO data(ls_error).
+*      WRITE:
+**        / |line { ls_error-line_number }:|,
+*          ls_error-record_type,
+*          ls_error-message.
+*    ENDLOOP.
+
+  ENDIF.
+
+ENDFORM.                    "display_summary
+*---------------------------------------------------------------------*
+* Create INVOIC IDocs
+*---------------------------------------------------------------------*
+FORM create_idocs.
+  DATA: ls_record_01 TYPE ty_record_01,
+        ls_record_21  TYPE ty_record_21,
+        ls_record_42  TYPE ty_record_42.
+
+* IDoc data segments
+  DATA: ls_edidc    TYPE edi_dc40,
+        lt_edidc    TYPE TABLE OF edi_dc40,
+        ls_edidd    TYPE edi_dd40,
+        lt_edidd    TYPE TABLE OF edi_dd40,
+        ls_e1edk01  TYPE e1edk01,
+        ls_e1edka1  TYPE e1edka1,
+        ls_e1edk02  TYPE e1edk02,
+        ls_e1edk03  TYPE e1edk03,
+        ls_e1edk14  TYPE e1edk14,
+        ls_e1edp01  TYPE e1edp01,
+        ls_e1edp02  TYPE e1edp02,
+        ls_e1edp19  TYPE e1edp19,
+        ls_e1edp26  TYPE e1edp26,
+        ls_e1eds01  TYPE e1eds01,
+        ls_e1edk04  TYPE e1edk04,
+        ls_e1edp04  TYPE e1edp04,
+        lv_edidc_docnum TYPE edidc-docnum,
+        lv_year(4)  TYPE c,
+        lv_month(2) TYPE c,
+        lv_day(2)   TYPE c,
+        lv_ebelp   TYPE ekpo-ebelp.
+  DATA: ls_created_idoc TYPE ty_created_idoc.
+
+  LOOP AT gt_record_01 INTO ls_record_01.
+    CLEAR: ls_edidc, ls_edidd, ls_e1edk01, ls_e1edka1, ls_e1edk02,
+           ls_e1edk03, ls_e1edk14, ls_e1edp01, ls_e1edp02, ls_e1edp19,
+           ls_e1edp26, ls_e1eds01, ls_e1edk04, ls_e1edp04.
+
+    CASE ls_record_01-invoice_type.
+      WHEN 'Non-PO'.  "FB60 invoice
+*control record
+        ls_edidc-idoctyp = 'INVOIC02'.
+        ls_edidc-mestyp = 'INVOIC'.
+        ls_edidc-mescod = 'FI'.
+        CONCATENATE 'SAP' sy-sysid INTO ls_edidc-rcvpor.
+        ls_edidc-rcvprt = 'LS'.
+        ls_edidc-rcvpfc = 'LS'.
+        CONCATENATE sy-sysid 'CLNT' sy-mandt INTO ls_edidc-rcvprn.
+        ls_edidc-sndpor = 'ONPHASE'.
+        ls_edidc-sndprt = 'LS'.
+        ls_edidc-sndpfc = 'LS'.
+        ls_edidc-sndprn = 'ONPHASE'.
+*header
+        ls_e1edk01-curcy  = ls_record_01-currency.
+        ls_e1edk01-bsart  = 'INVO'.
+        ls_edidd-segnam   = 'E1EDK01'.
+        ls_edidd-sdata    = ls_e1edk01.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edka1-parvw  = 'LF'.
+        ls_e1edka1-partn  = ls_record_01-supplier_number.
+        ls_edidd-segnam   = 'E1EDKA1'.
+        ls_edidd-sdata    = ls_e1edka1.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk02-qualf  = '009'.
+        ls_e1edk02-belnr  = ls_record_01-invoice_number.
+        ls_edidd-segnam   = 'E1EDK02'.
+        ls_edidd-sdata    = ls_e1edk02.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk03-iddat  = '012'.
+        CLEAR: lv_year, lv_month, lv_day.
+        lv_year   = ls_record_01-invoice_date+0(4).
+        lv_month  = ls_record_01-invoice_date+5(2).
+        lv_day    = ls_record_01-invoice_date+8(2).
+        CONCATENATE lv_year lv_month lv_day INTO ls_e1edk03-datum.
+        ls_edidd-segnam   = 'E1EDK03'.
+        ls_edidd-sdata    = ls_e1edk03.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk04-mwskz = 'XX'.  "FIX THIS - need determination logic
+        ls_e1edk04-mwsbt = ls_record_01-tax_amount.
+        ls_edidd-segnam   = 'E1EDK04'.
+        ls_edidd-sdata    = ls_e1edk04.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk14-qualf  = '011'.
+        ls_e1edk14-orgid  = '3000'.
+        ls_edidd-segnam   = 'E1EDK14'.
+        ls_edidd-sdata    = ls_e1edk14.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+*line items
+        LOOP AT gt_record_21 INTO ls_record_21 WHERE invoice_id = ls_record_01-invoice_id.
+          CLEAR: ls_e1edp01, ls_e1edp02, ls_e1edp19, ls_e1edp26, ls_e1edp04.
+
+          ls_e1edp01-posex  = ls_record_21-item_number.
+          ls_edidd-segnam   = 'E1EDP01'.
+          ls_edidd-sdata    = ls_e1edp01.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp02-qualf = '021'.
+          READ TABLE gt_record_42 INTO ls_record_42 WITH KEY segment_no = '2'.
+          IF sy-subrc = 0.
+            ls_e1edp02-belnr = ls_record_42-segment_value. "cost center - TBD
+          ENDIF.
+          ls_edidd-segnam   = 'E1EDP02'.
+          ls_edidd-sdata    = ls_e1edp02.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp19-qualf = '002'.
+          READ TABLE gt_record_42 INTO ls_record_42 WITH KEY segment_no = '1'.
+          IF sy-subrc = 0.
+            ls_e1edp19-idtnr = ls_record_42-segment_value. "cost center - TBD
+          ENDIF.
+          ls_edidd-segnam   = 'E1EDP19'.
+          ls_edidd-sdata    = ls_e1edp19.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp26-qualf = '002'.
+          ls_e1edp26-betrg = ls_record_21-line_amount.
+          ls_edidd-segnam   = 'E1EDP26'.
+          ls_edidd-sdata    = ls_e1edp26.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp04-mwskz = 'XX'.
+          ls_edidd-segnam   = 'E1EDP04'.
+          ls_edidd-sdata    = ls_e1edp04.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+        ENDLOOP.
+*summary
+        ls_e1eds01-sumid = '011'.
+        ls_e1eds01-summe = ls_record_01-invoice_amount.
+        ls_edidd-segnam   = 'E1EDS01'.
+        ls_edidd-sdata    = ls_e1eds01.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+      WHEN 'PO'. "MIRO invoice
+*control record
+        ls_edidc-idoctyp = 'INVOIC02'.
+        ls_edidc-mestyp = 'INVOIC'.
+        ls_edidc-mescod = 'MM'.
+        CONCATENATE 'SAP' sy-sysid INTO ls_edidc-rcvpor.
+        ls_edidc-rcvprt = 'LS'.
+        ls_edidc-rcvpfc = 'LS'.
+        CONCATENATE sy-sysid 'CLNT' sy-mandt INTO ls_edidc-rcvprn.
+        ls_edidc-sndpor = 'ONPHASE'.
+        ls_edidc-sndprt = 'LS'.
+        ls_edidc-sndpfc = 'LS'.
+        ls_edidc-sndprn = 'ONPHASE'.
+*header
+        ls_e1edk01-curcy  = ls_record_01-currency.
+        ls_e1edk01-bsart  = 'INVO'.
+        ls_edidd-segnam   = 'E1EDK01'.
+        ls_edidd-sdata    = ls_e1edk01.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edka1-parvw  = 'LF'. "vendor
+        ls_e1edka1-partn  = ls_record_01-supplier_number.
+        ls_edidd-segnam   = 'E1EDKA1'.
+        ls_edidd-sdata    = ls_e1edka1.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk02-qualf  = '009'.  "invoice number
+        ls_e1edk02-belnr  = ls_record_01-invoice_number.
+        ls_edidd-segnam   = 'E1EDK02'.
+        ls_edidd-sdata    = ls_e1edk02.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk03-iddat  = '012'.  "document date
+        CLEAR: lv_year, lv_month, lv_day.
+        lv_year   = ls_record_01-invoice_date+0(4).
+        lv_month  = ls_record_01-invoice_date+5(2).
+        lv_day    = ls_record_01-invoice_date+8(2).
+        CONCATENATE lv_year lv_month lv_day INTO ls_e1edk03-datum.
+        ls_edidd-segnam   = 'E1EDK03'.
+        ls_edidd-sdata    = ls_e1edk03.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk04-mwskz = 'XX'.  "FIX THIS - need determination logic
+        ls_e1edk04-mwsbt = ls_record_01-tax_amount.
+        ls_edidd-segnam   = 'E1EDK04'.
+        ls_edidd-sdata    = ls_e1edk04.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+
+        ls_e1edk14-qualf  = '011'.  "company code
+        ls_e1edk14-orgid  = '3000'.
+        ls_edidd-segnam   = 'E1EDK14'.
+        ls_edidd-sdata    = ls_e1edk14.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+*line items
+        LOOP AT gt_record_21 INTO ls_record_21 WHERE invoice_id = ls_record_01-invoice_id.
+          CLEAR: ls_e1edp01, ls_e1edp02, ls_e1edp19, ls_e1edp26, lv_ebelp, ls_e1edp04.
+
+          IF ls_record_21-field_05 IS NOT INITIAL.
+            lv_ebelp = ls_record_21-field_05.
+            CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT' "add leading zeros
+              EXPORTING
+                input         = lv_ebelp
+             IMPORTING
+               output        = lv_ebelp.
+            ls_e1edp01-posex  = lv_ebelp.
+          ENDIF.
+          ls_e1edp01-menge  = ls_record_21-quantity.
+          ls_e1edp01-menee  = ls_record_21-unit_of_measure.
+          ls_edidd-segnam   = 'E1EDP01'.
+          ls_edidd-sdata    = ls_e1edp01.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp02-qualf = '001'.
+          IF ls_record_21-field_04 IS NOT INITIAL.
+            ls_e1edp02-belnr = ls_record_21-field_04. "PO reference - line specifc
+          ELSE.
+            ls_e1edp02-belnr = ls_record_01-field_07. "PO reference - whole invoice
+          ENDIF.
+          ls_e1edp02-zeile  = lv_ebelp.  "PO line reference
+          ls_edidd-segnam   = 'E1EDP02'.
+          ls_edidd-sdata    = ls_e1edp02.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp26-qualf = '002'. "line amount
+          ls_e1edp26-betrg = ls_record_21-line_amount.
+          ls_edidd-segnam   = 'E1EDP26'.
+          ls_edidd-sdata    = ls_e1edp26.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+          ls_e1edp04-mwskz = 'XX'.
+          ls_edidd-segnam   = 'E1EDP04'.
+          ls_edidd-sdata    = ls_e1edp04.
+          APPEND ls_edidd TO lt_edidd.
+          CLEAR ls_edidd.
+
+        ENDLOOP.
+*summary
+        ls_e1eds01-sumid = '011'. "invoice total
+        ls_e1eds01-summe = ls_record_01-invoice_amount.
+        ls_edidd-segnam   = 'E1EDS01'.
+        ls_edidd-sdata    = ls_e1eds01.
+        APPEND ls_edidd TO lt_edidd.
+        CLEAR ls_edidd.
+    ENDCASE.
+
+*generate IDoc and process
+    CALL FUNCTION 'IDOC_INBOUND_SINGLE'
+      EXPORTING
+        pi_idoc_control_rec_40  = ls_edidc
+        pi_do_commit            = 'X'
+      IMPORTING
+        pe_idoc_number          = lv_edidc_docnum
+      TABLES
+        pt_idoc_data_records_40 = lt_edidd
+      EXCEPTIONS
+        idoc_not_saved          = 1
+        OTHERS                  = 2.
+
+    ls_edidc-docnum = lv_edidc_docnum.
+    APPEND ls_edidc TO lt_edidc.
+  ENDLOOP.
+
+  LOOP AT lt_edidc  INTO ls_edidc.
+    ls_created_idoc-docnum = ls_edidc-docnum.
+    ls_created_idoc-mescod = ls_edidc-mescod.
+    ls_created_idoc-fileno = gv_fileno.
+    APPEND ls_created_idoc TO gt_created_idocs.
+
+  ENDLOOP.
+
+ENDFORM.                    "create_idocs
+*&---------------------------------------------------------------------*
+*&      Form  read_directory
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM read_directory.
+
+  MOVE p_dir TO gv_dirname.
+  CLEAR: gt_filedir[].
+  CALL FUNCTION 'EPS_GET_DIRECTORY_LISTING'
+    EXPORTING
+      dir_name               = gv_dirname
+    IMPORTING
+      dir_name               = gv_dir_retrn
+      file_counter           = gv_nbr_files
+      error_counter          = gv_nbr_errs
+    TABLES
+      dir_list               = gt_filedir
+    EXCEPTIONS
+      invalid_eps_subdir     = 1
+      sapgparam_failed       = 2
+      build_directory_failed = 3
+      no_authorization       = 4
+      read_directory_failed  = 5
+      too_many_read_errors   = 6
+      empty_directory_list   = 7
+      OTHERS                 = 8.
+  CASE sy-subrc.
+*   "everything is OK
+    WHEN 0.
+    WHEN 1 OR 2 OR 3.
+      WRITE: / 'Internal SAP error reading directory', AT 39 gv_dirname.
+*      MESSAGE i000 WITH 'Internal SAP error reading directory' gv_dirname.
+    WHEN 4.
+      WRITE: / 'No authorization to read directory', AT 37 gv_dirname.
+*      MESSAGE i000 WITH 'No authorization to read directory' gv_dirname.
+    WHEN 5 OR 6 OR 8.
+      WRITE: / 'Errors reading directory', AT 27 gv_dirname.
+*      MESSAGE i000 WITH 'Errors reading directory' gv_dirname.
+  ENDCASE.
+
+
+ENDFORM.                    "read_directory
