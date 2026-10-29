@@ -1,0 +1,460 @@
+REPORT zcopy_alt_payee_bank_details.
+
+*-----------------------------------------------------------------------
+* Purpose:
+*   Copy bank details from vendor alternate payee LFA1-LNRZA
+*   to the target vendor/BP LFA1-LIFNR.
+* Important:
+*   This program assumes that vendor number and BP number are identical,
+*   as is normally expected in an S/4HANA CVI synchronized environment.
+*  Developer: Sangeeta Vasudeva(NTT data).
+*  9004453232 - Mass Update BP Bank Data Fields
+*&---------------------------------------------------------------------*
+
+
+TABLES: lfa1.
+
+CONSTANTS:
+  gc_lifnr_low  TYPE lifnr VALUE '0000100000',
+  gc_lifnr_high TYPE lifnr VALUE '0000199999'.
+
+SELECT-OPTIONS:
+  s_lifnr FOR lfa1-lifnr
+          DEFAULT gc_lifnr_low TO gc_lifnr_high.
+
+PARAMETERS:
+  p_test TYPE abap_bool AS CHECKBOX DEFAULT abap_true.
+
+TYPES:
+  BEGIN OF ty_vendor,
+    lifnr TYPE lfa1-lifnr,
+    name1 TYPE lfa1-name1,
+    lnrza TYPE lfa1-lnrza,
+  END OF ty_vendor,
+
+  BEGIN OF ty_log,
+    lifnr        TYPE lfa1-lifnr,
+    alternate_bp TYPE bu_partner,
+    source_bkid  TYPE bu_bkvid,
+    target_bkid  TYPE bu_bkvid,
+    bank_country TYPE banks,
+    bank_key     TYPE bankl,
+    bank_account TYPE bankn,
+    status       TYPE char10,
+    message      TYPE char255,
+  END OF ty_log.
+
+DATA:
+  gt_vendor          TYPE SORTED TABLE OF  ty_vendor WITH UNIQUE KEY lifnr,
+  gt_vendor_filtered TYPE SORTED TABLE OF  ty_vendor WITH UNIQUE KEY lifnr,
+  gt_log             TYPE STANDARD TABLE OF ty_log WITH EMPTY KEY,
+  gt_bankDetails     TYPE SORTED TABLE OF lfbk WITH UNIQUE KEY lifnr banks bankl bankn bkont,
+  gt_bank_altpayee   TYPE SORTED TABLE OF lfbk WITH UNIQUE KEY lifnr banks bankl bankn bkont.
+
+INITIALIZATION.
+
+  IF s_lifnr[] IS INITIAL.
+    s_lifnr = VALUE #(
+       sign   = 'I'
+        option = 'BT'
+        low    = gc_lifnr_low
+        high   = gc_lifnr_high )  .
+  ENDIF.
+
+START-OF-SELECTION.
+
+  PERFORM select_vendors.
+
+  IF gt_vendor IS INITIAL.
+    MESSAGE 'No vendors found for the specified selection' TYPE 'S'.
+    RETURN.
+  ENDIF.
+
+  PERFORM process_vendors.
+  PERFORM display_log.
+
+*-----------------------------------------------------------------------
+* Select target vendors
+*-----------------------------------------------------------------------
+FORM select_vendors.
+
+  SELECT lifnr,
+         name1,
+         lnrza
+    FROM lfa1
+    WHERE lifnr IN @s_lifnr
+      AND lnrza <> @space
+    INTO TABLE @gt_vendor.
+
+  IF NOT gt_vendor[] IS INITIAL.
+*Get the vendor's that have the bank details maintained already.
+    SELECT lifnr,
+    banks,
+    bankl,
+    bankn,
+    bkont
+    FROM lfbk
+    FOR ALL ENTRIES IN @gt_vendor
+    WHERE lifnr = @gt_vendor-lifnr
+    INTO CORRESPONDING FIELDS OF TABLE @gt_bankDetails.
+  ENDIF.
+
+
+*Delete the vendor's that have the bank details maintained already. We don't want to overwrite those.
+  gt_vendor_filtered   = FILTER #( gt_vendor
+                    EXCEPT IN gt_bankDetails
+                    WHERE lifnr = lifnr ).
+  IF NOT gt_vendor[] IS INITIAL.
+*Obtain the Alternate Payees that actually have bank details maintained.
+    SELECT lifnr,
+     banks,
+     bankl,
+     bankn,
+     bkont
+     FROM lfbk
+     FOR ALL ENTRIES IN @gt_vendor
+     WHERE lifnr = @gt_vendor-lnrza
+     INTO CORRESPONDING FIELDS OF TABLE @gt_bank_altpayee.
+  ENDIF.
+
+*Now filter out only those vendors with alternate information maintained. These will be copied over.
+  gt_vendor_filtered   = FILTER #(  gt_vendor_filtered
+                 IN gt_bank_altpayee
+                 WHERE lnrza = lifnr ).
+
+ENDFORM.
+
+*-----------------------------------------------------------------------
+* Process each target vendor
+*-----------------------------------------------------------------------
+FORM process_vendors.
+
+  DATA:
+    lt_source_bank TYPE STANDARD TABLE OF bapibus1006_bankdetails,
+    lt_target_bank TYPE STANDARD TABLE OF bapibus1006_bankdetails,
+    lt_return      TYPE STANDARD TABLE OF bapiret2,
+    ls_bank_data   TYPE bapibus1006_bankdetail,
+    lv_source_bp   TYPE bu_partner,
+    lv_target_bp   TYPE bu_partner,
+    lv_new_bkid    TYPE bu_bkvid,
+    lv_error       TYPE abap_bool,
+    lv_message     TYPE string.
+
+  LOOP AT  gt_vendor_filtered INTO DATA(ls_vendor).
+
+    CLEAR:
+      lt_source_bank,
+      lt_target_bank,
+      lt_return,
+      lv_error,
+      lv_message.
+
+    lv_target_bp = CONV bu_partner( ls_vendor-lifnr ).
+    lv_source_bp = CONV bu_partner( ls_vendor-lnrza ).
+
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = lv_target_bp
+      IMPORTING
+        output = lv_target_bp.
+
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = lv_source_bp
+      IMPORTING
+        output = lv_source_bp.
+
+*---------------------------------------------------------------------
+*   Read source alternate-payee bank details
+*---------------------------------------------------------------------
+    CALL FUNCTION 'BAPI_BUPA_BANKDETAILS_GET'
+      EXPORTING
+        businesspartner = lv_source_bp
+        valid_date      = sy-datlo
+      TABLES
+        bankdetails     = lt_source_bank
+        return          = lt_return.
+
+    PERFORM get_error_message
+      USING    lt_return
+      CHANGING lv_error
+               lv_message.
+
+    IF lv_error = abap_true.
+
+      IF lt_source_bank IS INITIAL.
+
+        APPEND VALUE #(
+          lifnr        = ls_vendor-lifnr
+          alternate_bp = lv_source_bp
+          status       = 'SKIPPED'
+          message      = 'Alternate-payee BP has no active bank details'
+        ) TO gt_log.
+
+        CONTINUE.
+
+      ENDIF.
+    ENDIF.
+
+*---------------------------------------------------------------------
+*   Read target bank details for duplicate checking
+*---------------------------------------------------------------------
+    CLEAR:
+      lt_return,
+      lv_error,
+      lv_message.
+
+    CALL FUNCTION 'BAPI_BUPA_BANKDETAILS_GET'
+      EXPORTING
+        businesspartner = lv_target_bp
+        valid_date      = sy-datlo
+      TABLES
+        bankdetails     = lt_target_bank
+        return          = lt_return.
+
+    PERFORM get_error_message
+      USING    lt_return
+      CHANGING lv_error
+               lv_message.
+
+
+
+    IF NOT lt_target_bank IS INITIAL.
+
+      APPEND VALUE #(
+        lifnr        = ls_vendor-lifnr
+        alternate_bp = lv_source_bp
+        status       = 'SKIPPED'
+        message      = |Target BP has active bank details|
+      ) TO gt_log.
+
+      CONTINUE.
+
+    ENDIF.
+
+*---------------------------------------------------------------------
+*   Add each source bank account to target BP
+*---------------------------------------------------------------------
+    LOOP AT lt_source_bank INTO DATA(ls_source_bank).
+
+      CLEAR:
+        ls_bank_data,
+        lt_return,
+        lv_new_bkid,
+        lv_error,
+        lv_message.
+
+
+
+*-------------------------------------------------------------------
+*     Duplicate check
+*-------------------------------------------------------------------
+      READ TABLE lt_target_bank
+        TRANSPORTING NO FIELDS
+        WITH KEY bank_ctry = ls_source_bank-bank_ctry
+                 bank_key  = ls_source_bank-bank_key
+                 bank_acct = ls_source_bank-bank_acct
+                 ctrl_key  = ls_source_bank-ctrl_key.
+
+      IF sy-subrc = 0.
+
+        APPEND VALUE #(
+          lifnr        = ls_vendor-lifnr
+          alternate_bp = lv_source_bp
+          source_bkid  = ls_source_bank-bankdetailid
+          bank_country = ls_source_bank-bank_ctry
+          bank_key     = ls_source_bank-bank_key
+          bank_account = ls_source_bank-bank_acct
+          status       = 'EXISTS'
+          message      = 'Equivalent bank detail already exists on target BP'
+        ) TO gt_log.
+
+        CONTINUE.
+
+      ENDIF.
+
+*-------------------------------------------------------------------
+*     Test mode
+*-------------------------------------------------------------------
+      IF p_test = abap_true.
+
+        APPEND VALUE #(
+          lifnr        = ls_vendor-lifnr
+          alternate_bp = lv_source_bp
+          source_bkid  = ls_source_bank-bankdetailid
+          bank_country = ls_source_bank-bank_ctry
+          bank_key     = ls_source_bank-bank_key
+          bank_account = ls_source_bank-bank_acct
+          status       = 'TEST'
+          message      = 'Bank detail would be added'
+        ) TO gt_log.
+
+        CONTINUE.
+      ELSE.
+        CLEAR ls_bank_data.
+        MOVE-CORRESPONDING ls_source_bank TO ls_bank_data.
+
+      ENDIF.
+
+*-------------------------------------------------------------------
+*     Add target BP bank detail
+*-------------------------------------------------------------------
+      CALL FUNCTION 'BAPI_BUPA_BANKDETAIL_ADD'
+        EXPORTING
+          businesspartner = lv_target_bp
+          bankdetaildata  = ls_bank_data
+        IMPORTING
+          bankdetailidout = lv_new_bkid
+        TABLES
+          return          = lt_return.
+
+      PERFORM get_error_message
+        USING    lt_return
+        CHANGING lv_error
+                 lv_message.
+
+      IF lv_error = abap_true.
+
+        APPEND VALUE #(
+          lifnr        = ls_vendor-lifnr
+          alternate_bp = lv_source_bp
+          source_bkid  = ls_source_bank-bankdetailid
+          bank_country = ls_source_bank-bank_ctry
+          bank_key     = ls_source_bank-bank_key
+          bank_account = ls_source_bank-bank_acct
+          status       = 'ERROR'
+          message      = lv_message
+        ) TO gt_log.
+
+*       Roll back all additions for this target BP.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+
+        EXIT.
+
+      ELSE.
+
+        APPEND VALUE #(
+          lifnr        = ls_vendor-lifnr
+          alternate_bp = lv_source_bp
+          source_bkid  = ls_source_bank-bankdetailid
+          target_bkid  = lv_new_bkid
+          bank_country = ls_source_bank-bank_ctry
+          bank_key     = ls_source_bank-bank_key
+          bank_account = ls_source_bank-bank_acct
+          status       = 'SUCCESS'
+          message      = 'Bank detail added successfully'
+        ) TO gt_log.
+
+
+
+      ENDIF.
+
+    ENDLOOP.
+
+*---------------------------------------------------------------------
+*   Commit only when processing was successful for this target BP
+*---------------------------------------------------------------------
+    IF p_test = abap_false AND lv_error = abap_false.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+
+    ENDIF.
+
+  ENDLOOP.
+
+  LOOP AT gt_bankDetails INTO DATA(ls_bankdetails).
+
+    APPEND VALUE #(
+         lifnr        = ls_bankdetails-lifnr
+         alternate_bp = VALUE #( gt_vendor[ lifnr = ls_bankdetails-lifnr ]-lnrza OPTIONAL )
+         source_bkid  = ls_bankdetails-BVTYP
+         bank_country = ls_bankdetails-BANKS
+         bank_key     = ls_bankdetails-BANKL
+         bank_account = ls_bankdetails-BANKN
+         status       = 'EXISTS'
+         message      = 'Bank details exists on target BP, Will not be overwritten'
+       ) TO gt_log.
+
+  ENDLOOP.
+
+ENDFORM.
+
+*-----------------------------------------------------------------------
+* Find BAPI errors and build readable message
+*-----------------------------------------------------------------------
+FORM get_error_message
+  USING
+    it_return  TYPE STANDARD TABLE
+  CHANGING
+    cv_error   TYPE abap_bool
+    cv_message TYPE string.
+
+  FIELD-SYMBOLS:
+    <ls_return> TYPE bapiret2.
+
+  CLEAR:
+    cv_error,
+    cv_message.
+
+  LOOP AT it_return ASSIGNING <ls_return>.
+
+    IF <ls_return>-type CA 'AEX'.
+      cv_error = abap_true.
+    ENDIF.
+
+    IF <ls_return>-message IS NOT INITIAL.
+
+      IF cv_message IS INITIAL.
+        cv_message = <ls_return>-message.
+      ELSE.
+        cv_message =
+          |{ cv_message }; { <ls_return>-message }|.
+      ENDIF.
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDFORM.
+
+*-----------------------------------------------------------------------
+* Display processing log
+*-----------------------------------------------------------------------
+FORM display_log.
+
+  DATA:
+    lo_alv     TYPE REF TO cl_salv_table,
+    lo_columns TYPE REF TO cl_salv_columns_table.
+
+  IF gt_log IS INITIAL.
+    MESSAGE 'Processing completed with no log entries' TYPE 'S'.
+    RETURN.
+  ENDIF.
+
+  TRY.
+
+      cl_salv_table=>factory(
+        IMPORTING
+          r_salv_table = lo_alv
+        CHANGING
+          t_table      = gt_log ).
+
+      lo_columns = lo_alv->get_columns( ).
+      lo_columns->set_optimize( abap_true ).
+
+      lo_alv->get_functions( )->set_all( abap_true ).
+      lo_alv->get_display_settings( )->set_striped_pattern( abap_true ).
+
+
+
+      lo_alv->display( ).
+
+    CATCH cx_salv_msg INTO DATA(lx_salv).
+      MESSAGE lx_salv->get_text( ) TYPE 'E'.
+  ENDTRY.
+
+
+
+ENDFORM.
